@@ -248,17 +248,22 @@ def register_all_ade20k(root):
 
 def register_kins():
     register_coco_instances("kins_dataset_train", {}, 
-        "/home/tqminh/codes/AmodalSeg/data/datasets/KINS/annotations/instances_train2017_amodal.json", 
-        "/home/tqminh/codes/AmodalSeg/data/datasets/KINS/train2017"
+        "/home/weientai18/ais/data/datasets/KINS/annotations/train_amodal.json", 
+        "/home/weientai18/ais/data/datasets/KINS/train_imgs"
     )
     
     meta = MetadataCatalog.get('kins_dataset_train')
     meta.thing_classes =['cyclist', 'pedestrian', 'car', 'tram',
                             'truck', 'van', 'misc']
 
+    '''
     register_coco_instances("kins_dataset_val", {}, 
-        "/home/tqminh/codes/AmodalSeg/data/datasets/KINS/annotations/instances_val2017.json", 
-        "/home/tqminh/codes/AmodalSeg/data/datasets/KINS/val2017"
+        "/home/weientai18/ais/data/datasets/KINS/annotations/train.json", 
+        "/home/weientai18/ais/data/datasets/KINS/train_imgs"
+    '''
+    register_coco_instances("kins_dataset_val", {}, 
+        "/home/weientai18/ais/data/datasets/KINS/annotations/test.json", 
+        "/home/weientai18/ais/data/datasets/KINS/test_imgs"
     )
 
     meta = MetadataCatalog.get('kins_dataset_val')
@@ -342,5 +347,5 @@ if __name__.endswith(".builtin"):
     register_all_pascal_voc(_root)
     register_all_ade20k(_root)
     register_kins()
-    register_COCOA()
-    register_D2SA()
+    #register_COCOA()
+    #register_D2SA()

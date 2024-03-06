@@ -16,5 +16,4 @@ config_path="configs/KINS-AmodalSeg/aisformer_R_50_FPN_1x_amodal_kins.yaml"
 #config_path="configs/COCOA_cls-AmodalSeg/aisformer_R_50_FPN_1x_amodal_cocoa_cls.yaml"
 
 
-python3 tools/train_net.py --num-gpus 1 \
-	--config-file ${config_path} 2>&1 | tee log/train_log_$ID.txt
+python3 tools/train_net.py --num-gpus 1 --config-file ${config_path} 2>&1 | tee log/train_log_$ID.txt

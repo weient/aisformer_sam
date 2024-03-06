@@ -155,6 +155,7 @@ class AmodalVisibleEvaluator(DatasetEvaluator):
 
                 # TODO this is ugly
                 if "instances" in output:
+                    
                     instances = output["instances"].to(self._cpu_device)
                     amodal2_prediction["instances"], visible2_prediction["instances"] = \
                         amodal_instances_to_coco_json(instances, input["image_id"], type="amodal2")
@@ -271,6 +272,7 @@ class AmodalVisibleEvaluator(DatasetEvaluator):
         #print(len(self._amodal_results),len(self._amodal_occ_results))
         # unmap the category ids for COCO
         if hasattr(self._metadata, "thing_dataset_id_to_contiguous_id"):
+            
             reverse_id_mapping = {
                 v: k for k, v in self._metadata.thing_dataset_id_to_contiguous_id.items()
             }
@@ -588,7 +590,6 @@ def amodal_instances_to_coco_json(instances, img_id, type="amodal"):
     num_instance = len(instances)
     if num_instance == 0:
         return [], []
-
     boxes = instances.pred_boxes.tensor.numpy()
     boxes = BoxMode.convert(boxes, BoxMode.XYXY_ABS, BoxMode.XYWH_ABS)
     boxes = boxes.tolist()

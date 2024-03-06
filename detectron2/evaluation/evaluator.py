@@ -7,7 +7,7 @@ from contextlib import ExitStack, contextmanager
 from typing import List, Union
 import torch
 from torch import nn
-
+import os
 from detectron2.utils.comm import get_world_size, is_main_process
 from detectron2.utils.logger import log_every_n_seconds
 
@@ -99,6 +99,21 @@ class DatasetEvaluators(DatasetEvaluator):
                     results[k] = v
         return results
 
+def save_out(inputs, outputs):
+    assert len(inputs) == 1
+    assert len(outputs) == 1
+    out_root = '/work/weientai18/aisformer_pred'
+    img_path = inputs[0]['file_name']
+    img_id = inputs[0]['image_id']
+    img_name = img_path.split('/')[-1]
+    out_name = img_name.split('.png')[0]+'.pt'
+    out_pred = outputs[0]['instances']
+    out_box = out_pred.pred_boxes.tensor
+    out_cls = out_pred.pred_classes
+    out_score = out_pred.scores
+    to_save = {'image_id':img_id, 'box':out_box, 'class':out_cls, 'score':out_score}
+    torch.save(to_save, os.path.join(out_root, out_name))
+
 
 def inference_on_dataset(
     model, data_loader, evaluator: Union[DatasetEvaluator, List[DatasetEvaluator], None]
@@ -156,12 +171,15 @@ def inference_on_dataset(
 
             start_compute_time = time.perf_counter()
             outputs = model(inputs)
+            #save_out(inputs, outputs)
+            
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             total_compute_time += time.perf_counter() - start_compute_time
 
             start_eval_time = time.perf_counter()
             evaluator.process(inputs, outputs)
+            #print(evaluator._metadata.thing_dataset_id_to_contiguous_id.items())
             total_eval_time += time.perf_counter() - start_eval_time
 
             iters_after_start = idx + 1 - num_warmup * int(idx >= num_warmup)
