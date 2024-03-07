@@ -178,14 +178,14 @@ class AmodalDataset(Dataset):
         original_size = self.cur_imgemb['original_size']
         h, w = original_size
         # amodal mask GT
-        asegm = [anno["a_segm"] for anno in self.anns_info[str(img_id)]]
+        asegm = [anno["segmentation"] for anno in self.anns_info[str(img_id)]]
         asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
         asegm = torch.as_tensor(asegm, dtype=torch.float, device=device).unsqueeze(1)  
         # random point prompt
         point_torch = []
         # amodal bbox GT
         box_torch = []
-        abbox = np.array([anno["a_bbox"] for anno in self.anns_info[str(img_id)]])
+        abbox = np.array([anno["bbox"] for anno in self.anns_info[str(img_id)]])
         box_torch = np.hstack((abbox[:, :2], abbox[:, :2] + abbox[:, 2:]))
         box_torch = torch.as_tensor(box_torch, dtype=torch.float, device=device)
         return img_emb, asegm, box_torch, point_torch, original_size, input_size, ais_data
@@ -219,7 +219,7 @@ lr = 1e-4
 dataset_name = 'kins'
 img_root = '/home/weientai18/ais/data/datasets/KINS/train_imgs'
 imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
-anno_path = '/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/train_dict_anno.json'
+anno_path = '/home/weientai18/SAM/mod_instances_train.json'
 tb_save_path = '/work/weientai18/amodal_dataset/checkpoint/runs'
 ckpt_save_path = '/work/weientai18/amodal_dataset/checkpoint'
 train_val_ratio = [0.8, 0.2]
@@ -358,61 +358,6 @@ def main(args):
         # gradient tracking is on
         sam_model.mask_decoder.train(True)
         avg_loss = train_one_epoch(epoch_number, writer, data_loader)
-
-        '''
-        running_vloss = 0.0
-        # Set the model to evaluation mode, disabling dropout and using population
-        # statistics for batch normalization.
-        
-        sam_model.mask_decoder.eval()
-
-        # reduce memory consumption.
-        with torch.no_grad():
-            for i, vdata in enumerate(validation_loader):
-                vdata = [None if x == [] else x for x in vdata]
-                vimage_embedding, vasegm, vbbox, vpoint, voriginal_size, vinput_size, vais_data = vdata
-                vais_data['image'] = torch.squeeze(vais_data['image'], 0).to(device)
-                vais_data['height'] = vais_data['height'].item()
-                vais_data['width'] = vais_data['width'].item()
-                vais_data['image_id'] = vais_data['image_id'].item()
-                
-                voriginal_size = [j.item() for j in voriginal_size]
-                vinput_size = [j.item() for j in vinput_size]
-                vbbox = torch.squeeze(vbbox, 0)
-                vasegm = torch.squeeze(vasegm, 0)
-                voutput = aisformer([vais_data,])
-                voutput = voutput[0]['instances']
-                vais_box = voutput.pred_boxes.tensor
-                vais_cls = voutput.pred_classes
-                vais_score = voutput.scores
-                vpred_box = Boxes(vais_box)
-                vgt_box = Boxes(vbbox)
-                match_quality_matrix = pairwise_iou(vgt_box, vpred_box)
-                matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-                vmatch_asegm = vasegm[matched_idxs]
-                #if i == 0:
-                #    vis(vimg_path[0], vais_box, vbbox[matched_idxs], 'val')
-                vais_box = transform.apply_boxes_torch(vais_box, voriginal_size)
-                vais_box = torch.as_tensor(vais_box, dtype=torch.float, device=device)
-                vsparse_embeddings, vdense_embeddings = sam_model.prompt_encoder(
-                    points=None,
-                    boxes=vais_box,
-                    masks=None,
-                )
-                vlow_res_masks, viou_predictions = sam_model.mask_decoder(
-                    image_embeddings=vimage_embedding,
-                    image_pe=sam_model.prompt_encoder.get_dense_pe(),
-                    sparse_prompt_embeddings=vsparse_embeddings,
-                    dense_prompt_embeddings=vdense_embeddings,
-                    multimask_output=False,
-                )
-
-                vupscaled_masks = sam_model.postprocess_masks(vlow_res_masks, vinput_size, voriginal_size).to(device)
-                vloss = loss_fn(vupscaled_masks, vmatch_asegm)
-                running_vloss += vloss
-
-        avg_vloss = running_vloss / (i + 1)
-        '''
         #print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
         print('LOSS train {}'.format(avg_loss))
         # Log the running loss averaged per batch for both training and validation
@@ -425,15 +370,6 @@ def main(args):
         writer.flush()
 
         # Track best performance, and save the model's state
-        '''
-        if avg_vloss < best_vloss:
-            best_vloss = avg_vloss
-            model_path = os.path.join(ckpt_save_path, 'model_{}_{}'.format(timestamp, epoch_number))
-            torch.save(sam_model.mask_decoder.state_dict(), model_path)
-        elif epoch_number % 10 == 9:
-            model_path = os.path.join(ckpt_save_path, 'model_{}_{}'.format(timestamp, epoch_number))
-            torch.save(sam_model.mask_decoder.state_dict(), model_path)
-        '''
         if epoch_number % 10 == 9:
             model_path = os.path.join(ckpt_save_path, 'model_{}_{}'.format(timestamp, epoch_number))
             torch.save(sam_model.mask_decoder.state_dict(), model_path)

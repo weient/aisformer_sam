@@ -230,9 +230,9 @@ anchor_matcher = Matcher(
         thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_aissam.json'
+result_save_path = '/work/weientai18/result_h_aissam_new_49.json'
 vis_save_root = '/work/weientai18/aissam_vis'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240305_043542_39'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240306_134436_49'
 
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
@@ -243,14 +243,16 @@ def generate_random_colors(num_colors):
     return colors
 
 
-def vis(img_path, ais_box, matched_box, sam_mask, matched_mask):
+def vis(img_path, ais_box, matched_box, sam_mask, matched_mask, ais_mask):
     print("visualizing...")
     img_name = img_path.split('/')[-1]
     save_path = os.path.join(vis_save_root, img_name)
     img = cv2.imread(img_path, cv2.IMREAD_COLOR)
     matched_img = copy.deepcopy(img)
+    sam_img = copy.deepcopy(img)
     ais_img = copy.deepcopy(img)
     matched_img = cv2.addWeighted(matched_img, 0.2, matched_img, 0, 0)
+    sam_img = cv2.addWeighted(sam_img, 0.2, sam_img, 0, 0)
     ais_img = cv2.addWeighted(ais_img, 0.2, ais_img, 0, 0)
     color_match = (100, 0, 255)
     color_ais = (0, 255, 100)
@@ -260,15 +262,20 @@ def vis(img_path, ais_box, matched_box, sam_mask, matched_mask):
         b, g, r = random_colors[i]
         mask = torch.squeeze(mask).cpu().numpy().astype(np.uint8)
         matched = torch.squeeze(matched_mask[i]).cpu().numpy().astype(np.uint8)
+        ais = ais_mask[i].cpu().numpy().astype(np.uint8)
         mask = np.stack((b*mask, g*mask, r*mask), axis=2)
         matched = np.stack((b*matched, g*matched, r*matched), axis=2)
-        ais_img = cv2.addWeighted(ais_img, 1, mask, 0.7, 0)
+        ais = np.stack((b*ais, g*ais, r*ais), axis=2)
+        sam_img = cv2.addWeighted(sam_img, 1, mask, 0.7, 0)
         matched_img = cv2.addWeighted(matched_img, 1, matched, 0.7, 0)
+        ais_img = cv2.addWeighted(ais_img, 1, ais, 0.7, 0)
     for i, box in enumerate(ais_box):
         matched = matched_box[i]
+        sam_img = cv2.rectangle(sam_img, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color_ais, 1)
         ais_img = cv2.rectangle(ais_img, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color_ais, 1)
         matched_img = cv2.rectangle(matched_img, (int(matched[0]), int(matched[1])), (int(matched[2]), int(matched[3])), color_match, 1)
     final_img = np.concatenate((matched_img, ais_img), axis=0)
+    final_img = np.concatenate((final_img, sam_img), axis=0)
     cv2.imwrite(save_path, final_img)
 
 def save_instance_result(img_id, masks, classes, scores):
@@ -331,6 +338,7 @@ def main(args):
             ais_box_copy = ais_box.clone()
             ais_cls = output.pred_classes
             ais_score = output.scores
+            ais_mask = output.pred_amodal_masks
             pred_box = Boxes(ais_box)
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
@@ -354,7 +362,7 @@ def main(args):
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
             if i in samples:
-                vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm)
+                vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm, ais_mask)
             save_instance_result(img_id, pred_mask, ais_cls, ais_score)
 
     with open(result_save_path, 'w') as f:
