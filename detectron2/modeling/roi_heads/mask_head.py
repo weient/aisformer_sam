@@ -157,7 +157,6 @@ def mask_rcnn_loss(pred_mask_logits, pred_boundary_logits, instances, pred_mask_
     if len(gt_masks) == 0:
         return pred_mask_logits.sum() * 0,  pred_boundary_logits.sum() * 0
     '''
-
     if use_i_mask:
         if len(gt_i_masks) == 0:
             return pred_mask_logits.sum() * 0,  pred_boundary_logits.sum() * 0,\

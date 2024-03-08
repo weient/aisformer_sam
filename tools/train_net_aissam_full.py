@@ -225,9 +225,11 @@ ckpt_save_path = '/work/weientai18/amodal_dataset/checkpoint'
 train_val_ratio = [0.8, 0.2]
 EPOCHS = 2000
 anchor_matcher = Matcher(
+        thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
+    )
+anchor_matcher_2 = Matcher(
         thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
     )
-
 def vis(img_path, ais_box, matched_box, flag):
     print(img_path)
     img = cv2.imread(img_path, cv2.IMREAD_COLOR)
@@ -250,7 +252,7 @@ def vis(img_path, ais_box, matched_box, flag):
 def train_one_epoch(epoch_index, tb_writer, training_loader):
     running_loss = 0.
     last_loss = 0.
-
+    sum_diff = 0
     for i, data in enumerate(training_loader):
         data = [None if x == [] else x for x in data]
         image_embedding, asegm, bbox, point, original_size, input_size, ais_data = data
@@ -273,6 +275,9 @@ def train_one_epoch(epoch_index, tb_writer, training_loader):
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
+            idxs_2, labels_2 = anchor_matcher_2(match_quality_matrix)
+            if any(matched_idxs != idxs_2):
+                sum_diff += 1
             match_asegm = asegm[matched_idxs]
             #if i == 0:
             #    vis(img_path[0], ais_box, bbox[matched_idxs], 'train')
@@ -304,9 +309,11 @@ def train_one_epoch(epoch_index, tb_writer, training_loader):
         if i % 1000 == 999:
             last_loss = running_loss / 1000 # loss per batch
             print('  batch {} loss: {}'.format(i + 1, last_loss))
+            print('  num of diffs: {}'.format(sum_diff))
             tb_x = epoch_index * len(training_loader) + i + 1
             tb_writer.add_scalar('Loss/train', last_loss, tb_x)
             running_loss = 0.
+            sum_diff = 0
     
     return last_loss
 
@@ -351,12 +358,12 @@ def main(args):
     epoch_number = 0
 
     best_vloss = 1_000_000.
-    
+
+    # gradient tracking is on
+    sam_model.mask_decoder.train(True)
     for epoch in range(EPOCHS):
         print('EPOCH {}:'.format(epoch_number + 1))
 
-        # gradient tracking is on
-        sam_model.mask_decoder.train(True)
         avg_loss = train_one_epoch(epoch_number, writer, data_loader)
         #print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
         print('LOSS train {}'.format(avg_loss))

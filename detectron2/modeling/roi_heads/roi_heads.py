@@ -816,7 +816,6 @@ class StandardROIHeads(ROIHeads):
             assert targets, "'targets' argument is required during training"
             proposals = self.label_and_sample_proposals(proposals, targets)
         del targets
-
         if self.training:
             losses = self._forward_box(features, proposals)
             # Usually the original proposals used by the box head are used by the mask, keypoint
@@ -831,7 +830,6 @@ class StandardROIHeads(ROIHeads):
             bo_bound = torch.zeros_like(mask_logits, device='cuda')
             a_mask_bound = torch.zeros_like(mask_logits, device='cuda')
             # ###
-
             loss_mask, loss_mask_bo, loss_boundary, loss_boundary_bo, loss_a_mask, loss_a_boundary, loss_justify =\
                 mask_rcnn_loss(mask_logits, boundary, instances, bo_masks, bo_bound, 
                                 use_i_mask=self.aisformer.USE, pred_a_mask_logits=a_mask_logits, 
@@ -953,7 +951,6 @@ class StandardROIHeads(ROIHeads):
         if self.training:
             # head is only trained on positive proposals.
             instances, _ = select_foreground_proposals(instances, self.num_classes)
-
         if self.all_layers_roi_pooling:
             features = [features[f] for f in self.mask_in_features]
             boxes = [x.proposal_boxes if self.training else x.pred_boxes for x in instances]

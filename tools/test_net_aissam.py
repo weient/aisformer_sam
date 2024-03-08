@@ -230,9 +230,9 @@ anchor_matcher = Matcher(
         thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_aissam_new_49.json'
+result_save_path = '/work/weientai18/result_h_aissam_anno_29.json'
 vis_save_root = '/work/weientai18/aissam_vis'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240306_134436_49'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240307_235745_29'
 
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
@@ -361,8 +361,8 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
-            if i in samples:
-                vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm, ais_mask)
+            #if i in samples:
+            #    vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm, ais_mask)
             save_instance_result(img_id, pred_mask, ais_cls, ais_score)
 
     with open(result_save_path, 'w') as f:

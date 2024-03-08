@@ -1,5 +1,5 @@
 _BASE_: '../Base-RCNN-FPN-KINS.yaml'
-OUTPUT_DIR: /work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/
+OUTPUT_DIR: /work/weientai18/aisformer/testing/
 MODEL:
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   #WEIGHTS: "/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000/model_0159999.pth"
