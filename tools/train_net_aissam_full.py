@@ -222,13 +222,13 @@ imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
 anno_path = '/home/weientai18/SAM/mod_instances_train.json'
 tb_save_path = '/work/weientai18/amodal_dataset/checkpoint/runs'
 ckpt_save_path = '/work/weientai18/amodal_dataset/checkpoint'
+resume_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240309_044028_29'
+resume_ep = 30
+resume = True
 train_val_ratio = [0.8, 0.2]
 EPOCHS = 2000
 anchor_matcher = Matcher(
         thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
-    )
-anchor_matcher_2 = Matcher(
-        thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
     )
 def vis(img_path, ais_box, matched_box, flag):
     print(img_path)
@@ -252,7 +252,6 @@ def vis(img_path, ais_box, matched_box, flag):
 def train_one_epoch(epoch_index, tb_writer, training_loader):
     running_loss = 0.
     last_loss = 0.
-    sum_diff = 0
     for i, data in enumerate(training_loader):
         data = [None if x == [] else x for x in data]
         image_embedding, asegm, bbox, point, original_size, input_size, ais_data = data
@@ -275,9 +274,7 @@ def train_one_epoch(epoch_index, tb_writer, training_loader):
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-            idxs_2, labels_2 = anchor_matcher_2(match_quality_matrix)
-            if any(matched_idxs != idxs_2):
-                sum_diff += 1
+            #idxs_2, labels_2 = anchor_matcher_2(match_quality_matrix)
             match_asegm = asegm[matched_idxs]
             #if i == 0:
             #    vis(img_path[0], ais_box, bbox[matched_idxs], 'train')
@@ -309,11 +306,9 @@ def train_one_epoch(epoch_index, tb_writer, training_loader):
         if i % 1000 == 999:
             last_loss = running_loss / 1000 # loss per batch
             print('  batch {} loss: {}'.format(i + 1, last_loss))
-            print('  num of diffs: {}'.format(sum_diff))
             tb_x = epoch_index * len(training_loader) + i + 1
             tb_writer.add_scalar('Loss/train', last_loss, tb_x)
             running_loss = 0.
-            sum_diff = 0
     
     return last_loss
 
@@ -333,6 +328,8 @@ def main(args):
     # setting up SAM model
     global sam_model 
     sam_model = sam_model_registry[vit_type](checkpoint=vit_dict[vit_type])
+    if resume:
+        sam_model.mask_decoder.load_state_dict(torch.load(resume_ckpt))
     sam_model.to(device)
 
     global transform
@@ -356,7 +353,8 @@ def main(args):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     writer = SummaryWriter(os.path.join(tb_save_path, 'fashion_trainer_{}'.format(timestamp)))
     epoch_number = 0
-
+    if resume:
+        epoch_number = resume_ep
     best_vloss = 1_000_000.
 
     # gradient tracking is on

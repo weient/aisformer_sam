@@ -230,9 +230,9 @@ anchor_matcher = Matcher(
         thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_aissam_anno_29.json'
+result_save_path = '/work/weientai18/result_h_aissam_matcher_29.json'
 vis_save_root = '/work/weientai18/aissam_vis'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240307_235745_29'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240309_044028_29'
 
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
