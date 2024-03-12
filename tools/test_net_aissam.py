@@ -183,6 +183,8 @@ class AmodalDataset(Dataset):
         input_size = self.cur_imgemb['input_size']
         original_size = self.cur_imgemb['original_size']
         h, w = original_size
+        # instances area
+        area = torch.tensor([anno['area'] for anno in self.anns_info[str(img_id)]])
         # amodal mask GT
         asegm = [anno["segmentation"] for anno in self.anns_info[str(img_id)]]
         asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
@@ -194,7 +196,7 @@ class AmodalDataset(Dataset):
         abbox = np.array([anno["bbox"] for anno in self.anns_info[str(img_id)]])
         box_torch = np.hstack((abbox[:, :2], abbox[:, :2] + abbox[:, 2:]))
         box_torch = torch.as_tensor(box_torch, dtype=torch.float, device=device)
-        return img_emb, asegm, box_torch, point_torch, original_size, input_size, ais_data, img_path
+        return img_emb, asegm, box_torch, point_torch, original_size, input_size, ais_data, img_path, area
 
     def __len__(self):
         return len(self.imgs_info)
@@ -227,13 +229,13 @@ img_root = '/home/weientai18/ais/data/datasets/KINS/train_imgs'
 imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
 anno_path = '/home/weientai18/SAM/mod_instances_train.json'
 anchor_matcher = Matcher(
-        thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
+        thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_aissam_matcher_29.json'
-vis_save_root = '/work/weientai18/aissam_vis'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240309_044028_29'
-
+result_save_path = '/work/weientai18/result_h_aissam_filter_29.json'
+vis_save_root = '/work/weientai18/aissam_vis_filter'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240312_020736_29'
+visualize = False
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
     G = random.sample(range(50, 200), num_colors)
@@ -269,11 +271,17 @@ def vis(img_path, ais_box, matched_box, sam_mask, matched_mask, ais_mask):
         sam_img = cv2.addWeighted(sam_img, 1, mask, 0.7, 0)
         matched_img = cv2.addWeighted(matched_img, 1, matched, 0.7, 0)
         ais_img = cv2.addWeighted(ais_img, 1, ais, 0.7, 0)
+    for ais, gt, color in zip(ais_box, matched_box, random_colors):
+        sam_img = cv2.rectangle(sam_img, (int(ais[0]), int(ais[1])), (int(ais[2]), int(ais[3])), color, 1)
+        ais_img = cv2.rectangle(ais_img, (int(ais[0]), int(ais[1])), (int(ais[2]), int(ais[3])), color, 1)
+        matched_img = cv2.rectangle(matched_img, (int(gt[0]), int(gt[1])), (int(gt[2]), int(gt[3])), color, 1)
+    '''
     for i, box in enumerate(ais_box):
         matched = matched_box[i]
         sam_img = cv2.rectangle(sam_img, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color_ais, 1)
         ais_img = cv2.rectangle(ais_img, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color_ais, 1)
         matched_img = cv2.rectangle(matched_img, (int(matched[0]), int(matched[1])), (int(matched[2]), int(matched[3])), color_match, 1)
+    '''
     final_img = np.concatenate((matched_img, ais_img), axis=0)
     final_img = np.concatenate((final_img, sam_img), axis=0)
     cv2.imwrite(save_path, final_img)
@@ -320,7 +328,7 @@ def main(args):
     samples = random.sample(range(len(dataset)), 10)
     for i, data in enumerate(data_loader):
         data = [None if x == [] else x for x in data]
-        image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path = data
+        image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path, area = data
         print(img_path[0].split('/')[-1])
         with torch.no_grad():
             ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(device)
@@ -332,6 +340,8 @@ def main(args):
             input_size = [j.item() for j in input_size]
             asegm = torch.squeeze(asegm, 0)
             bbox = torch.squeeze(bbox, 0)
+            area = torch.squeeze(area)
+            small_idx = torch.squeeze((area <= 1024).nonzero(as_tuple=False)).to(device)
             output = aisformer([ais_data,])
             output = output[0]['instances']
             ais_box = output.pred_boxes.tensor
@@ -344,6 +354,8 @@ def main(args):
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
             match_asegm = asegm[matched_idxs]
+            match_box = bbox[matched_idxs]
+        
             ais_box = transform.apply_boxes_torch(ais_box, original_size)
             ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
             sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
@@ -361,6 +373,16 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
+            if small_idx.any() and visualize:
+                idxs = torch.nonzero(matched_idxs.unsqueeze(1) == small_idx, as_tuple=False)[:, 0]
+                small_num = idxs.shape[0]
+                small_asegm = match_asegm[idxs]
+                small_box = match_box[idxs]
+                small_aisbox = ais_box_copy[idxs]
+                small_aismask = ais_mask[idxs]
+                small_pred = pred_mask[idxs]
+                if small_num > 15:
+                    vis(img_path[0], small_aisbox, small_box, small_pred, small_asegm, small_aismask)
             #if i in samples:
             #    vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm, ais_mask)
             save_instance_result(img_id, pred_mask, ais_cls, ais_score)

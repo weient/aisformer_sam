@@ -215,7 +215,7 @@ vit_dict = {
     }
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 vit_type = 'vit_h'
-lr = 1e-4
+lr = 1e-5
 dataset_name = 'kins'
 img_root = '/home/weientai18/ais/data/datasets/KINS/train_imgs'
 imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
@@ -224,7 +224,7 @@ tb_save_path = '/work/weientai18/amodal_dataset/checkpoint/runs'
 ckpt_save_path = '/work/weientai18/amodal_dataset/checkpoint'
 resume_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240309_044028_29'
 resume_ep = 30
-resume = True
+resume = False
 train_val_ratio = [0.8, 0.2]
 EPOCHS = 2000
 anchor_matcher = Matcher(
@@ -274,7 +274,9 @@ def train_one_epoch(epoch_index, tb_writer, training_loader):
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-            #idxs_2, labels_2 = anchor_matcher_2(match_quality_matrix)
+            tp_idxs = (anchor_labels == 1).nonzero(as_tuple=False).squeeze(1)
+            matched_idxs = matched_idxs[tp_idxs]
+            ais_box = ais_box[tp_idxs]
             match_asegm = asegm[matched_idxs]
             #if i == 0:
             #    vis(img_path[0], ais_box, bbox[matched_idxs], 'train')
