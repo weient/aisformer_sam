@@ -171,16 +171,21 @@ class AmodalDataset(Dataset):
         img = aug_input.image
         ais_data["image"] = torch.as_tensor(np.ascontiguousarray(img.transpose(2, 0, 1)))
 
+
+        '''
         # load pre-computed img embeddings
         self.cur_imgemb = torch.load(path)
         img_emb = self.cur_imgemb['feature'].squeeze(0).to(device)
         input_size = self.cur_imgemb['input_size']
         original_size = self.cur_imgemb['original_size']
         h, w = original_size
+        '''
+        '''
         # amodal mask GT
         asegm = [anno["segmentation"] for anno in self.anns_info[str(img_id)]]
         asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
         asegm = torch.as_tensor(asegm, dtype=torch.float, device=device).unsqueeze(1)  
+        '''
         # random point prompt
         point_torch = []
         # amodal bbox GT
@@ -188,7 +193,7 @@ class AmodalDataset(Dataset):
         abbox = np.array([anno["bbox"] for anno in self.anns_info[str(img_id)]])
         box_torch = np.hstack((abbox[:, :2], abbox[:, :2] + abbox[:, 2:]))
         box_torch = torch.as_tensor(box_torch, dtype=torch.float, device=device)
-        return img_emb, asegm, box_torch, point_torch, original_size, input_size, ais_data, img_path
+        return box_torch, point_torch, ais_data, img_path
 
     def __len__(self):
         return len(self.imgs_info)
@@ -213,20 +218,23 @@ vit_dict = {
     'vit_b':"/home/weientai18/SAM/SAM_ckpt/sam_vit_b_01ec64.pth", 
     'vit_h':"/home/weientai18/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
     }
+anno_dic = {
+    'train':'/home/weientai18/SAM/mod_instances_train.json',
+    'test':'/home/weientai18/ais/AISFormer/tools/mod_instances_val_2.json'
+}
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#device = torch.device('cpu')
+eval_type = 'test' # train or test
 vit_type = 'vit_h'
 dataset_name = 'kins'
-img_root = '/home/weientai18/ais/data/datasets/KINS/train_imgs'
+img_root = '/home/weientai18/ais/data/datasets/KINS/{}_imgs'.format(eval_type)
 imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
-anno_path = '/home/weientai18/SAM/mod_instances_train.json'
+anno_path = anno_dic[eval_type]
 anchor_matcher = Matcher(
         thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
     )
 result_list = []
-result_save_path = '/work/weientai18/result_aisformer_final.json'
+result_save_path = '/work/weientai18/result_aisformer_best_test.json'
 vis_save_root = '/work/weientai18/aissam_vis'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240305_043542_39'
 
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
@@ -288,18 +296,6 @@ def main(args):
     aisformer.to(device)
     aisformer.eval()
 
-    # setting up SAM model
-    '''
-    global sam_model 
-    sam_model = sam_model_registry[vit_type](checkpoint=vit_dict[vit_type])
-    sam_model.mask_decoder.load_state_dict(torch.load(sam_ckpt))
-    mask_threshold = sam_model.mask_threshold
-    sam_model.to(device)
-    sam_model.eval()
-
-    global transform
-    transform = ResizeLongestSide(sam_model.image_encoder.img_size)
-    '''
     # Create datasets for training & validation
     dataset = AmodalDataset(dataset_name)
 
@@ -308,7 +304,7 @@ def main(args):
     samples = random.sample(range(len(dataset)), 10)
     for i, data in enumerate(data_loader):
         data = [None if x == [] else x for x in data]
-        image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path = data
+        bbox, point, ais_data, img_path = data
         print(img_path[0].split('/')[-1])
         with torch.no_grad():
             ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(device)
@@ -316,9 +312,7 @@ def main(args):
             ais_data['width'] = ais_data['width'].item()
             ais_data['image_id'] = ais_data['image_id'].item()
             img_id = ais_data['image_id']
-            original_size = [j.item() for j in original_size]
-            input_size = [j.item() for j in input_size]
-            asegm = torch.squeeze(asegm, 0)
+            #asegm = torch.squeeze(asegm, 0)
             bbox = torch.squeeze(bbox, 0)
             output = aisformer([ais_data,])
             output = output[0]['instances']
@@ -331,7 +325,7 @@ def main(args):
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-            match_asegm = asegm[matched_idxs]
+            #match_asegm = asegm[matched_idxs]
             '''
             ais_box = transform.apply_boxes_torch(ais_box, original_size)
             ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
@@ -368,7 +362,7 @@ if __name__ == "__main__":
     args.num_machines=1
     args.machine_rank=0
     args.dist_url='tcp://127.0.0.1:64153'
-    args.opts=['MODEL.WEIGHTS', '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth']
+    args.opts=['MODEL.WEIGHTS', '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth']
     print("Command Line Args:", args)
     launch(
         main,

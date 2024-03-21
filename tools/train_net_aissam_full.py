@@ -215,7 +215,7 @@ vit_dict = {
     }
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 vit_type = 'vit_h'
-lr = 1e-5
+lr = 1e-4
 dataset_name = 'kins'
 img_root = '/home/weientai18/ais/data/datasets/KINS/train_imgs'
 imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
@@ -228,7 +228,7 @@ resume = False
 train_val_ratio = [0.8, 0.2]
 EPOCHS = 2000
 anchor_matcher = Matcher(
-        thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
+        thresholds=[0.7], labels=[0, 1], allow_low_quality_matches=False
     )
 def vis(img_path, ais_box, matched_box, flag):
     print(img_path)

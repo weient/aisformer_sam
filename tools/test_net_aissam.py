@@ -220,21 +220,25 @@ def setup(args):
 vit_dict = {
     'vit_b':"/home/weientai18/SAM/SAM_ckpt/sam_vit_b_01ec64.pth", 
     'vit_h':"/home/weientai18/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
-    }
+}
+anno_dict = {
+    'train':"/home/weientai18/SAM/mod_instances_train.json"
+    'test':"/home/weientai18/ais/AISFormer/tools/mod_instances_val_2.json"
+}
+test_type = 'test' # train or test set
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#device = torch.device('cpu')
 vit_type = 'vit_h'
 dataset_name = 'kins'
-img_root = '/home/weientai18/ais/data/datasets/KINS/train_imgs'
-imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
-anno_path = '/home/weientai18/SAM/mod_instances_train.json'
+img_root = '/home/weientai18/ais/data/datasets/KINS/{}_imgs'.format(test_type)
+imgemb_root = '/work/weientai18/amodal_dataset/{}ing_imgemb_h'.format(test_type)
+anno_path = anno_dict[test_type]
 anchor_matcher = Matcher(
         thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_aissam_filter_29.json'
+result_save_path = '/work/weientai18/result_h_aissam_filter0.7_39_test.json'
 vis_save_root = '/work/weientai18/aissam_vis_filter'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240312_020736_29'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240315_001944_39'
 visualize = False
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)

@@ -8,7 +8,7 @@ ID=159
 # TODO: specify experiment config
 ## kins
 config_path="configs/KINS-AmodalSeg/aisformer_R_50_FPN_1x_amodal_kins.yaml"
-output_dir="/work/weientai18/aisformer/testing"
+output_dir="/work/weientai18/aisformer/full_training"
 ## d2sa
 #config_path="configs/D2SA-AmodalSeg/aisformer_R_50_FPN_1x_amodal_d2sa.yaml"
 
