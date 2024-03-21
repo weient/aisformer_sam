@@ -223,7 +223,7 @@ vit_dict = {
 }
 anno_dict = {
     'train':"/home/weientai18/SAM/mod_instances_train.json"
-    'test':"/home/weientai18/ais/AISFormer/tools/mod_instances_val_2.json"
+    'test':"/home/weientai18/SAM/evaluate/mod_instances_val_2.json"
 }
 test_type = 'test' # train or test set
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
