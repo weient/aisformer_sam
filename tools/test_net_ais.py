@@ -219,8 +219,8 @@ vit_dict = {
     'vit_h':"/home/weientai18/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
     }
 anno_dic = {
-    'train':'/home/weientai18/SAM/mod_instances_train.json',
-    'test':'/home/weientai18/SAM/evaluate/mod_instances_val_2.json'
+    'train':'/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_train.json',
+    'test':'/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json'
 }
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 eval_type = 'test' # train or test

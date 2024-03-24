@@ -222,8 +222,8 @@ vit_dict = {
     'vit_h':"/home/weientai18/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
 }
 anno_dict = {
-    'train':"/home/weientai18/SAM/mod_instances_train.json"
-    'test':"/home/weientai18/SAM/evaluate/mod_instances_val_2.json"
+    'train':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_train.json",
+    'test':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json"
 }
 test_type = 'test' # train or test set
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -236,9 +236,9 @@ anchor_matcher = Matcher(
         thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_aissam_filter0.7_39_test.json'
+result_save_path = '/work/weientai18/result_h_aissam_filter0.75_29_test.json'
 vis_save_root = '/work/weientai18/aissam_vis_filter'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240315_001944_39'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240322_035718_29'
 visualize = False
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)

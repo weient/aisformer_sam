@@ -219,7 +219,7 @@ lr = 1e-4
 dataset_name = 'kins'
 img_root = '/home/weientai18/ais/data/datasets/KINS/train_imgs'
 imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
-anno_path = '/home/weientai18/SAM/mod_instances_train.json'
+anno_path = '/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_train.json'
 tb_save_path = '/work/weientai18/amodal_dataset/checkpoint/runs'
 ckpt_save_path = '/work/weientai18/amodal_dataset/checkpoint'
 resume_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240309_044028_29'
@@ -228,7 +228,7 @@ resume = False
 train_val_ratio = [0.8, 0.2]
 EPOCHS = 2000
 anchor_matcher = Matcher(
-        thresholds=[0.7], labels=[0, 1], allow_low_quality_matches=False
+        thresholds=[0.75], labels=[0, 1], allow_low_quality_matches=False
     )
 def vis(img_path, ais_box, matched_box, flag):
     print(img_path)
