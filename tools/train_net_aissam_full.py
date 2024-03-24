@@ -225,7 +225,6 @@ ckpt_save_path = '/work/weientai18/amodal_dataset/checkpoint'
 resume_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240309_044028_29'
 resume_ep = 30
 resume = False
-train_val_ratio = [0.8, 0.2]
 EPOCHS = 2000
 anchor_matcher = Matcher(
         thresholds=[0.75], labels=[0, 1], allow_low_quality_matches=False

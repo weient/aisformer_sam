@@ -276,24 +276,24 @@ def register_COCOA():
     # train data
     register_coco_instances(
         "cocoa_cls_train", {},
-        "/home/tqminh/codes/AmodalSeg/data/datasets/COCOA/annotations/instances_train2014_amodal.json",
-        "/home/tqminh/codes/AmodalSeg/data/datasets/COCOA/train2014"
+        "/home/weientai18/ais/data/datasets/COCOA/annotations/train_amodal.json",
+        "/home/weientai18/ais/data/datasets/COCOA/train_imgs"
     )
     meta = MetadataCatalog.get("cocoa_cls_train")
     cocoa_cat_list = None
-    with open('/home/tqminh/codes/AmodalSeg/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
+    with open('/home/weientai18/ais/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
         cocoa_cat_list = pickle.load(fp)
     meta.thing_classes = cocoa_cat_list
 
     # val data
     register_coco_instances(
         "cocoa_cls_val", {},
-        "/home/tqminh/codes/AmodalSeg/data/datasets/COCOA/annotations/instances_val2014.json",
-        "/home/tqminh/codes/AmodalSeg/data/datasets/COCOA/val2014"
+        "/home/weientai18/ais/data/datasets/COCOA/annotations/test.json",
+        "/home/weientai18/ais/data/datasets/COCOA/test_imgs"
     )
     meta = MetadataCatalog.get("cocoa_cls_val")
     cocoa_cat_list = None
-    with open('/home/tqminh/codes/AmodalSeg/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
+    with open('/home/weientai18/ais/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
         cocoa_cat_list = pickle.load(fp)
     meta.thing_classes = cocoa_cat_list
 
@@ -347,5 +347,5 @@ if __name__.endswith(".builtin"):
     register_all_pascal_voc(_root)
     register_all_ade20k(_root)
     register_kins()
-    #register_COCOA()
+    register_COCOA()
     #register_D2SA()
