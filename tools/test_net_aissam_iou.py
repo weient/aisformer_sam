@@ -225,6 +225,8 @@ anno_dict = {
     'train':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_train.json",
     'test':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json"
 }
+is_IoU = True
+iou_threshold = 0.5
 test_type = 'test' # train or test set
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
 ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
@@ -238,9 +240,9 @@ anchor_matcher = Matcher(
         thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_AUGsam_69_btest.json'
+result_save_path = '/work/weientai18/result_h_AUGsam_69_btest_iou.json'
 vis_save_root = '/work/weientai18/aissam_vis_filter'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_69_AUGamodal'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240326_042203_69_AUGamodal_IoU'
 visualize = False
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
@@ -356,6 +358,7 @@ def main(args):
             ais_score = output.scores
             ais_mask = output.pred_amodal_masks
             pred_box = Boxes(ais_box)
+
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
@@ -379,6 +382,17 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
+            if is_IoU:
+                
+                tp_index = (iou_predictions >= iou_threshold).nonzero() 
+                tp_index = tp_index[:, 0]
+                
+                pred_mask = pred_mask[tp_index]
+                ais_cls = ais_cls[tp_index]
+                ais_score = ais_score[tp_index]
+
+            
+            
             if small_idx.any() and visualize:
                 idxs = torch.nonzero(matched_idxs.unsqueeze(1) == small_idx, as_tuple=False)[:, 0]
                 small_num = idxs.shape[0]
