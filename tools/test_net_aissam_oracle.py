@@ -225,8 +225,7 @@ anno_dict = {
     'train':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_train.json",
     'test':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json"
 }
-is_IoU = True
-iou_threshold = 0.5
+is_IoU = False
 test_type = 'test' # train or test set
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
 ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
@@ -237,12 +236,12 @@ img_root = '/home/weientai18/ais/data/datasets/KINS/{}_imgs'.format(test_type)
 imgemb_root = '/work/weientai18/amodal_dataset/{}ing_imgemb_h'.format(test_type)
 anno_path = anno_dict[test_type]
 anchor_matcher = Matcher(
-        thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
+        thresholds=[0.9], labels=[0, 1], allow_low_quality_matches=False
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_AUGsam_69_btest_iou.json'
+result_save_path = '/work/weientai18/result_oracle_sam_test_0.9.json'
 vis_save_root = '/work/weientai18/aissam_vis_filter'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240326_042203_69_AUGamodal_IoU'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_149_AUGamodal'
 visualize = False
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
@@ -358,12 +357,10 @@ def main(args):
             ais_score = output.scores
             ais_mask = output.pred_amodal_masks
             pred_box = Boxes(ais_box)
-
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-            match_asegm = asegm[matched_idxs]
-            match_box = bbox[matched_idxs]
+            
         
             ais_box = transform.apply_boxes_torch(ais_box, original_size)
             ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
@@ -382,17 +379,20 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
-            if is_IoU:
-                
-                tp_index = (iou_predictions >= iou_threshold).nonzero() 
-                tp_index = tp_index[:, 0]
-                
-                pred_mask = pred_mask[tp_index]
-                ais_cls = ais_cls[tp_index]
-                ais_score = ais_score[tp_index]
 
-            
-            
+            fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
+            #zero_mask = torch.zeros(asegm.shape[1:]).to(device)
+            match_asegm = asegm[matched_idxs].clone()
+            match_asegm[fp_idxs] = pred_mask[fp_idxs].to(match_asegm.dtype)
+            #match_asegm[fp_idxs] = zero_mask
+            if is_IoU:
+                tp_idxs = (anchor_labels == 1).nonzero(as_tuple=False).squeeze(1)
+                matched_idxs = matched_idxs[tp_idxs]
+                ais_cls = ais_cls[tp_idxs]
+                ais_score = ais_score[tp_idxs]
+                match_asegm = asegm[matched_idxs]
+
+            '''
             if small_idx.any() and visualize:
                 idxs = torch.nonzero(matched_idxs.unsqueeze(1) == small_idx, as_tuple=False)[:, 0]
                 small_num = idxs.shape[0]
@@ -405,7 +405,8 @@ def main(args):
                     vis(img_path[0], small_aisbox, small_box, small_pred, small_asegm, small_aismask)
             #if i in samples:
             #    vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm, ais_mask)
-            save_instance_result(img_id, pred_mask, ais_cls, ais_score)
+            '''
+            save_instance_result(img_id, match_asegm, ais_cls, ais_score)
 
     with open(result_save_path, 'w') as f:
         json.dump(result_list, f)

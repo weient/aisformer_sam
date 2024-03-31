@@ -229,6 +229,7 @@ vit_type = 'vit_h'
 dataset_name = 'kins'
 img_root = '/home/weientai18/ais/data/datasets/KINS/{}_imgs'.format(eval_type)
 imgemb_root = '/work/weientai18/amodal_dataset/{}ing_imgemb_h'.format(eval_type)
+sam_ckpt = '/work/weientai18/result_h_AUGsam_149_btest.json'
 anno_path = anno_dic[eval_type]
 anchor_matcher = Matcher(
         thresholds=[0.7], labels=[0, 1], allow_low_quality_matches=False
@@ -296,6 +297,18 @@ def main(args):
     )
     aisformer.to(device)
     aisformer.eval()
+
+
+    # setting up SAM model
+    global sam_model 
+    sam_model = sam_model_registry[vit_type](checkpoint=vit_dict[vit_type])
+    sam_model.mask_decoder.load_state_dict(torch.load(sam_ckpt))
+    mask_threshold = sam_model.mask_threshold
+    sam_model.to(device)
+    sam_model.eval()
+
+    global transform
+    transform = ResizeLongestSide(sam_model.image_encoder.img_size)
 
     # Create datasets for training & validation
     dataset = AmodalDataset(dataset_name)

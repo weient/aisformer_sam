@@ -41,12 +41,6 @@ from detectron2.evaluation import (
 from detectron2.data import transforms as T
 from detectron2.modeling.matcher import Matcher
 from detectron2.structures import Boxes, pairwise_iou
-'''
-from tools.SAM_train import (
-    polys_to_mask,
-    train_one_epoch,
-)
-'''
 from detectron2.modeling import GeneralizedRCNNWithTTA
 from tools.add_config import add_config
 import torch
@@ -141,6 +135,9 @@ class Trainer(DefaultTrainer):
         res = OrderedDict({k + "_TTA": v for k, v in res.items()})
         return res
 
+def rle_to_mask(rle):
+    mask = mask_utils.decode(rle)
+    return mask
 def polys_to_mask(polygons, height, width):
 	rles = mask_utils.frPyObjects(polygons, height, width)
 	rle = mask_utils.merge(rles)
@@ -153,19 +150,20 @@ class AmodalDataset(Dataset):
         self.cur_imgid = None
         self.cur_imgemb = None
         self.ais_aug = T.AugmentationList([T.ResizeShortestEdge(short_edge_length=(800, 800), max_size=3000, sample_style='choice')])
-        if dataset == 'kins':
-            self.data_root = imgemb_root
-            self.img_root = img_root
-            self.anno_path = anno_path
-            with open(self.anno_path) as f:
-                anns = json.load(f)
-                self.imgs_info = anns['images']
-                self.anns_info = anns['annotations']
+        self.data_root = imgemb_root[dataset]
+        self.img_root = img_root[dataset]
+        self.anno_path = anno_path
+        with open(self.anno_path) as f:
+            anns = json.load(f)
+            self.imgs_info = anns['images']
+            self.anns_info = anns['annotations']
+
     def __getitem__(self, index):
         img_id = self.imgs_info[index]['id']
         img_name = self.imgs_info[index]['file_name']
-        path = os.path.join(self.data_root, img_name.split('.png')[0]+'.pt')
+        path = os.path.join(self.data_root, img_name.split(img_suffix[self.dataset])[0]+'.pt')
         img_path = os.path.join(self.img_root, img_name)
+        
         # for aisformer input data dictionary
         ais_data = {'file_name': img_path}
         img = utils.read_image(ais_data['file_name'], format='BGR')
@@ -183,19 +181,27 @@ class AmodalDataset(Dataset):
         input_size = self.cur_imgemb['input_size']
         original_size = self.cur_imgemb['original_size']
         h, w = original_size
+
         # instances area
         area = torch.tensor([anno['area'] for anno in self.anns_info[str(img_id)]])
+        
         # amodal mask GT
         asegm = [anno["segmentation"] for anno in self.anns_info[str(img_id)]]
-        asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
+        if self.dataset == 'kins':
+            asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
+        if self.dataset == 'cocoa':
+            asegm = np.stack([rle_to_mask(mask) for mask in asegm])
         asegm = torch.as_tensor(asegm, dtype=torch.float, device=device).unsqueeze(1)  
+        
         # random point prompt
         point_torch = []
+        
         # amodal bbox GT
         box_torch = []
         abbox = np.array([anno["bbox"] for anno in self.anns_info[str(img_id)]])
         box_torch = np.hstack((abbox[:, :2], abbox[:, :2] + abbox[:, 2:]))
         box_torch = torch.as_tensor(box_torch, dtype=torch.float, device=device)
+
         return img_emb, asegm, box_torch, point_torch, original_size, input_size, ais_data, img_path, area
 
     def __len__(self):
@@ -216,32 +222,49 @@ def setup(args):
     default_setup(cfg, args)
     return cfg
 
+#ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
+#ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
+#ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
+ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
+ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
+vit_type = 'vit_h'
+dataset_name = 'cocoa'
+matcher_iou = 0.5
+pred_iou = False
+filter_threshold = 0.5
+result_save_path = '/work/weientai18/result_h_AUGsam_coco_219_test.json'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240327_030548_219_AUGamodal_coco'
+visualize = False
+vis_save_root = '/work/weientai18/aissam_vis_filter'
 
+
+img_suffix = {
+    'kins':'.png',
+    'cocoa':'.jpg'
+}
 vit_dict = {
     'vit_b':"/home/weientai18/SAM/SAM_ckpt/sam_vit_b_01ec64.pth", 
     'vit_h':"/home/weientai18/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
 }
 anno_dict = {
-    'train':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_train.json",
-    'test':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json"
+    'kins':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json",
+    'cocoa':"/work/weientai18/amodal_dataset/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014.json"
 }
-test_type = 'test' # train or test set
-#ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
-ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-vit_type = 'vit_h'
-dataset_name = 'kins'
-img_root = '/home/weientai18/ais/data/datasets/KINS/{}_imgs'.format(test_type)
-imgemb_root = '/work/weientai18/amodal_dataset/{}ing_imgemb_h'.format(test_type)
-anno_path = anno_dict[test_type]
+
+img_root = {
+    'kins':'/home/weientai18/ais/data/datasets/KINS/test_imgs',
+    'cocoa':'/home/weientai18/ais/data/datasets/COCOA/test_imgs'
+}
+imgemb_root = {
+    'kins':'/work/weientai18/amodal_dataset/testing_imgemb_h',
+    'cocoa':'/work/weientai18/amodal_dataset/coco_testing_imgemb_h'
+}
+anno_path = anno_dict[dataset_name]
 anchor_matcher = Matcher(
-        thresholds=[0.5], labels=[0, 1], allow_low_quality_matches=False
+        thresholds=[matcher_iou], labels=[0, 1], allow_low_quality_matches=False
     )
 result_list = []
-result_save_path = '/work/weientai18/result_h_AUGsam_69_btest.json'
-vis_save_root = '/work/weientai18/aissam_vis_filter'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_69_AUGamodal'
-visualize = False
 def generate_random_colors(num_colors):
     R = random.sample(range(50, 200), num_colors)
     G = random.sample(range(50, 200), num_colors)
@@ -293,7 +316,10 @@ def vis(img_path, ais_box, matched_box, sam_mask, matched_mask, ais_mask):
     cv2.imwrite(save_path, final_img)
 
 def save_instance_result(img_id, masks, classes, scores):
-    ais_to_ann = {0:1, 1:2, 2:4, 3:5, 4:6, 5:7, 6:8}
+    if dataset_name == 'cocoa':
+        ais_to_ann = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46, 41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
+    if dataset_name == 'kins':
+        ais_to_ann = {0: 1, 1: 2, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8}
     for i, mask in enumerate(masks):
         mask = torch.squeeze(mask, 0)
         np_mask = mask.detach().cpu().numpy().astype(np.uint8)
@@ -329,9 +355,10 @@ def main(args):
     # Create datasets for training & validation
     dataset = AmodalDataset(dataset_name)
 
-    # shuffle for training, not for validation
+    # test dataloader
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
     samples = random.sample(range(len(dataset)), 10)
+    empty_img = 0
     for i, data in enumerate(data_loader):
         data = [None if x == [] else x for x in data]
         image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path, area = data
@@ -364,6 +391,9 @@ def main(args):
         
             ais_box = transform.apply_boxes_torch(ais_box, original_size)
             ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
+            if ais_box.shape[0] == 0:
+                empty_img += 1
+                continue
             sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
                 points=None,
                 boxes=ais_box,
@@ -379,6 +409,14 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
+
+            if pred_iou:
+                tp_index = (iou_predictions >= filter_threshold).nonzero() 
+                tp_index = tp_index[:, 0]
+                pred_mask = pred_mask[tp_index]
+                ais_cls = ais_cls[tp_index]
+                ais_score = ais_score[tp_index]
+
             if small_idx.any() and visualize:
                 idxs = torch.nonzero(matched_idxs.unsqueeze(1) == small_idx, as_tuple=False)[:, 0]
                 small_num = idxs.shape[0]
@@ -392,27 +430,28 @@ def main(args):
             #if i in samples:
             #    vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm, ais_mask)
             save_instance_result(img_id, pred_mask, ais_cls, ais_score)
-
+    
+    print('num of empty prediction:', empty_img)
     with open(result_save_path, 'w') as f:
         json.dump(result_list, f)
 
 
 if __name__ == "__main__":
     args = default_argument_parser().parse_args()
-    args.config_file='/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
-    args.resume=False
-    args.eval_only=True
-    args.num_gpus=1
-    args.num_machines=1
-    args.machine_rank=0
-    args.dist_url='tcp://127.0.0.1:64153'
-    args.opts=['MODEL.WEIGHTS', ais_weight]
+    args.config_file = ais_config
+    args.resume = False
+    args.eval_only = True
+    args.num_gpus = 1
+    args.num_machines = 1
+    args.machine_rank = 0
+    args.dist_url = 'tcp://127.0.0.1:64153'
+    args.opts = ['MODEL.WEIGHTS', ais_weight]
     print("Command Line Args:", args)
     launch(
         main,
         args.num_gpus,
-        num_machines=args.num_machines,
-        machine_rank=args.machine_rank,
-        dist_url=args.dist_url,
-        args=(args,),
+        num_machines = args.num_machines,
+        machine_rank = args.machine_rank,
+        dist_url = args.dist_url,
+        args = (args,),
     )

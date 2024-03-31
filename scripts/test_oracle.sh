@@ -12,4 +12,4 @@ output_dir="/work/weientai18/"
 #python3 tools/train_net_aissam.py --num-gpus 1 \
 #        --config-file ${output_dir}/config.yaml \
 #        --eval-only MODEL.WEIGHTS ${output_dir}/${test_ckpt} 2>&1 | tee ${output_dir}/sam_log.txt
-python3 tools/test_net_oracle.py
+python3 tools/test_net_aissam_oracle.py

@@ -325,29 +325,7 @@ def main(args):
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-            #match_asegm = asegm[matched_idxs]
-            '''
-            ais_box = transform.apply_boxes_torch(ais_box, original_size)
-            ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
             
-            sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
-                points=None,
-                boxes=ais_box,
-                masks=None,
-            )
-            
-            low_res_masks, iou_predictions = sam_model.mask_decoder(
-                image_embeddings=image_embedding,
-                image_pe=sam_model.prompt_encoder.get_dense_pe(),
-                sparse_prompt_embeddings=sparse_embeddings,
-                dense_prompt_embeddings=dense_embeddings,
-                multimask_output=False,
-            )
-            upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
-            pred_mask = upscaled_masks > mask_threshold
-            if i in samples:
-                vis(img_path[0], ais_box_copy, bbox[matched_idxs], pred_mask, match_asegm)
-            '''
             save_instance_result(img_id, ais_mask, ais_cls, ais_score)
     
     with open(result_save_path, 'w') as f:
