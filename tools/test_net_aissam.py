@@ -222,19 +222,20 @@ def setup(args):
     default_setup(cfg, args)
     return cfg
 
+oracle = True
+pred_iou = False
+visualize = False
+matcher_iou = 0.8
+filter_threshold = 0.5
+vit_type = 'vit_h'
+dataset_name = 'kins'
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
 ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
 ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
 #ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
 #ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
-vit_type = 'vit_h'
-dataset_name = 'kins'
-matcher_iou = 0.5
-pred_iou = False
-filter_threshold = 0.5
-result_save_path = '/work/weientai18/result_h_AUGsam_139_test.json'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_139_AUGamodal'
-visualize = False
+result_save_path = '/work/weientai18/result_h_oracle_0.8.json'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_149_AUGamodal'
 vis_save_root = '/work/weientai18/aissam_vis_filter'
 
 
@@ -386,8 +387,8 @@ def main(args):
             gt_box = Boxes(bbox)
             match_quality_matrix = pairwise_iou(gt_box, pred_box)
             matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-            match_asegm = asegm[matched_idxs]
-            match_box = bbox[matched_idxs]
+            #match_asegm = asegm[matched_idxs]
+            #match_box = bbox[matched_idxs]
         
             ais_box = transform.apply_boxes_torch(ais_box, original_size)
             ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
@@ -409,14 +410,20 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
-
+            if oracle:
+                fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
+                #zero_mask = torch.zeros(asegm.shape[1:]).to(device)
+                match_asegm = asegm[matched_idxs].clone()
+                match_asegm[fp_idxs] = pred_mask[fp_idxs].to(match_asegm.dtype)
+                pred_mask = match_asegm
+            
             if pred_iou:
                 tp_index = (iou_predictions >= filter_threshold).nonzero() 
                 tp_index = tp_index[:, 0]
                 pred_mask = pred_mask[tp_index]
                 ais_cls = ais_cls[tp_index]
                 ais_score = ais_score[tp_index]
-
+            
             if small_idx.any() and visualize:
                 idxs = torch.nonzero(matched_idxs.unsqueeze(1) == small_idx, as_tuple=False)[:, 0]
                 small_num = idxs.shape[0]
