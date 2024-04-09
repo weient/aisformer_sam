@@ -222,10 +222,10 @@ def setup(args):
     default_setup(cfg, args)
     return cfg
 
-oracle = False
-pred_iou = True
-matcher_iou = 0.9
-filter_threshold = 0.6
+#oracle = True
+#pred_iou = False
+matcher_iou = 0.5
+#filter_threshold = 0.5
 vit_type = 'vit_h'
 dataset_name = 'kins'
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
@@ -233,8 +233,9 @@ ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_16000
 ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
 #ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
 #ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
-result_save_path = '/work/weientai18/result_h_AUGsamiou_w.05_139_0.6_filter.json'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240406_165507_139_AUGamodal_iou_l1.05'
+#result_save_path = '/work/weientai18/result_h_oracle_0.8.json'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_149_AUGamodal'
+vis_save_root = '/work/weientai18/aissam_iterbox'
 
 
 img_suffix = {
@@ -265,19 +266,89 @@ anchor_matcher = Matcher(
     )
 result_list = []
 
-def save_instance_result(img_id, masks, classes, scores):
-    if dataset_name == 'cocoa':
-        ais_to_ann = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46, 41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
-    if dataset_name == 'kins':
-        ais_to_ann = {0: 1, 1: 2, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8}
-    for i, mask in enumerate(masks):
-        mask = torch.squeeze(mask, 0)
-        np_mask = mask.detach().cpu().numpy().astype(np.uint8)
-        rle_mask = encode(np.asfortranarray(np_mask))
-        rle_mask['counts'] = rle_mask['counts'].decode('ascii')
-        cat_id = classes[i].item()
-        score = scores[i].item()
-        result_list.append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
+def generate_random_colors(num_colors):
+    R = random.sample(range(50, 200), num_colors)
+    G = random.sample(range(50, 200), num_colors)
+    B = random.sample(range(50, 200), num_colors)
+    colors = list(zip(R, G, B))
+    
+    return colors
+
+def vis(img_path, ais_box_all, sam_mask_all, box_2_all, sam_mask_2_all, gt_mask_all, fp_idxs_all, small_idx, lm_idx):
+    
+    sml_dic = {
+        'small':small_idx,
+        'lm':lm_idx
+    }
+    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    img_name = img_path.split('/')[-1]
+    for size in ['small', 'lm']:
+        g = sml_dic[size]
+        #fp_idxs = list(set(fp_idxs_all.cpu().numpy()) & set(g.cpu().numpy()))
+        fp_idxs = (g.unsqueeze(1) == fp_idxs_all).nonzero(as_tuple=False)[:, 0]
+        #fp_idxs = (fp_idxs_all == g).nonzero(as_tuple=False)[:, 0]
+        ais_box = ais_box_all[g]
+        p2_box = box_2_all[g]
+        sam_mask = sam_mask_all[g]
+        sam_2_mask = sam_mask_2_all[g]
+        gt_mask = gt_mask_all[g]
+
+        save_path = os.path.join(vis_save_root, size, img_name)
+        sam_2_img = copy.deepcopy(img)
+        sam_img = copy.deepcopy(img)
+        gt_img = copy.deepcopy(img)
+        sam_2_img = cv2.addWeighted(sam_2_img, 0.2, sam_2_img, 0, 0)
+        sam_img = cv2.addWeighted(sam_img, 0.2, sam_img, 0, 0)
+        gt_img = cv2.addWeighted(gt_img, 0.2, gt_img, 0, 0)
+        color_fp = (100, 0, 255)
+        color_tp = (0, 255, 100)
+        num_colors = len(g)
+        random_colors = generate_random_colors(num_colors)
+        for i in range(num_colors):
+            b, g, r = random_colors[i]
+            smask = sam_mask[i].squeeze(0).cpu().numpy().astype(np.uint8)
+            s2mask = sam_2_mask[i].squeeze(0).cpu().numpy().astype(np.uint8)
+            gmask = gt_mask[i].squeeze(0).cpu().numpy().astype(np.uint8)
+            smask = np.stack((b*smask, g*smask, r*smask), axis=2)
+            s2mask = np.stack((b*s2mask, g*s2mask, r*s2mask), axis=2)
+            gmask = np.stack((b*gmask, g*gmask, r*gmask), axis=2)
+            sam_img = cv2.addWeighted(sam_img, 1, smask, 0.7, 0)
+            sam_2_img = cv2.addWeighted(sam_2_img, 1, s2mask, 0.7, 0)
+            gt_img = cv2.addWeighted(gt_img, 1, gmask, 0.7, 0)
+        for i in range(num_colors):
+            ais = ais_box[i]
+            p2 = p2_box[i]
+            color = color_fp if i in fp_idxs else color_tp
+            for image in [sam_img, gt_img]:
+                image = cv2.rectangle(image, (int(ais[0]), int(ais[1])), (int(ais[2]), int(ais[3])), color, 1)
+            sam_2_img = cv2.rectangle(sam_2_img, (int(p2[0]), int(p2[1])), (int(p2[2]), int(p2[3])), color, 1)
+        final_img = np.concatenate((gt_img, sam_img), axis=0)
+        final_img = np.concatenate((final_img, sam_2_img), axis=0)
+        cv2.imwrite(save_path, final_img)
+
+
+def find_bounding_boxes(masks):
+    
+    bounding_boxes = []
+    for i in range(masks.size(0)):
+        mask = masks[i, 0]  # Get the i-th mask with shape (H, W)
+        
+        # Find the non-zero indices
+        non_zero_indices = torch.nonzero(mask, as_tuple=False)
+        
+        if non_zero_indices.size(0) == 0:
+            # No non-zero indices, append an empty box or handle appropriately
+            bounding_boxes.append([0, 0, 0, 0])
+            continue
+        
+        y_min, x_min = torch.min(non_zero_indices, dim=0).values
+        y_max, x_max = torch.max(non_zero_indices, dim=0).values
+        
+        # Append bounding box (converting to x_min, y_min, x_max, y_max format)
+        bounding_boxes.append([x_min.item(), y_min.item(), x_max.item(), y_max.item()])
+    
+    return torch.as_tensor(bounding_boxes, dtype=torch.float, device=device)
+
 
 def main(args):
     torch.manual_seed(0)
@@ -309,8 +380,9 @@ def main(args):
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
     samples = random.sample(range(len(dataset)), 10)
     empty_img = 0
-    filter_preds = 0
     for i, data in enumerate(data_loader):
+        if i not in samples:
+            continue
         data = [None if x == [] else x for x in data]
         image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path, area = data
         print(img_path[0].split('/')[-1])
@@ -324,8 +396,8 @@ def main(args):
             input_size = [j.item() for j in input_size]
             asegm = torch.squeeze(asegm, 0)
             bbox = torch.squeeze(bbox, 0)
-            area = torch.squeeze(area)
-            small_idx = torch.squeeze((area <= 1024).nonzero(as_tuple=False)).to(device)
+            area = torch.squeeze(area, 0)
+            small_GT = torch.squeeze((area <= 1024).nonzero(as_tuple=False)).to(device)
             output = aisformer([ais_data,])
             output = output[0]['instances']
             ais_box = output.pred_boxes.tensor
@@ -343,6 +415,8 @@ def main(args):
             if ais_box.shape[0] == 0:
                 empty_img += 1
                 continue
+
+            # sam prediction
             sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
                 points=None,
                 boxes=ais_box,
@@ -358,25 +432,67 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
-            if oracle:
-                fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
-                match_asegm = asegm[matched_idxs].clone()
-                match_asegm[fp_idxs] = pred_mask[fp_idxs].to(match_asegm.dtype)
-                pred_mask = match_asegm
             
+
+            # round 2 mask prediction
+            round2_box = find_bounding_boxes(pred_mask)
+            round2_box_copy = round2_box.clone()
+            round2_box = transform.apply_boxes_torch(round2_box, original_size)
+            round2_box = torch.as_tensor(round2_box, dtype=torch.float, device=device)
+            sparse_emb_2, dense_emb_2 = sam_model.prompt_encoder(
+                points=None,
+                boxes=round2_box,
+                masks=None,
+            )
+            low_res_2, iou_pred_2 = sam_model.mask_decoder(
+                image_embeddings=image_embedding,
+                image_pe=sam_model.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_emb_2,
+                dense_prompt_embeddings=dense_emb_2,
+                multimask_output=False,
+            )
+            upscaled_2 = sam_model.postprocess_masks(low_res_2, input_size, original_size).to(device)
+            pred_mask_2 = upscaled_2 > mask_threshold
+
+
+
+
+            # GT masks
+            gt_mask = asegm[matched_idxs].clone()
+
+            # oracle masks
+            fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
+            oracle_mask = asegm[matched_idxs].clone()
+            oracle_mask[fp_idxs] = pred_mask[fp_idxs].to(oracle_mask.dtype)
+            
+            # index for small instances
+            small_idx = torch.nonzero(matched_idxs.unsqueeze(1) == small_GT, as_tuple=False)[:, 0]
+            lm_idx = ~(matched_idxs.unsqueeze(1) == small_GT).any(1)
+            lm_idx = torch.nonzero(lm_idx, as_tuple=True)[0]
+
+            vis(img_path[0], ais_box_copy, pred_mask, round2_box_copy, pred_mask_2, gt_mask, fp_idxs, small_idx, lm_idx)
+
+            '''
             if pred_iou:
                 tp_index = (iou_predictions >= filter_threshold).nonzero() 
                 tp_index = tp_index[:, 0]
-                filter_preds += pred_mask.shape[0] - tp_index.shape[0]
                 pred_mask = pred_mask[tp_index]
                 ais_cls = ais_cls[tp_index]
                 ais_score = ais_score[tp_index]
-            save_instance_result(img_id, pred_mask, ais_cls, ais_score)
+            
+            if small_idx.any() and visualize:
+                idxs = torch.nonzero(matched_idxs.unsqueeze(1) == small_idx, as_tuple=False)[:, 0]
+                small_num = idxs.shape[0]
+                small_asegm = match_asegm[idxs]
+                small_box = match_box[idxs]
+                small_aisbox = ais_box_copy[idxs]
+                small_aismask = ais_mask[idxs]
+                small_pred = pred_mask[idxs]
+                if small_num > 15:
+                    vis(img_path[0], small_aisbox, small_box, small_pred, small_asegm, small_aismask)
+            '''
     
     print('num of empty prediction:', empty_img)
-    print('num of filter out instances:', filter_preds)
-    with open(result_save_path, 'w') as f:
-        json.dump(result_list, f)
 
 
 if __name__ == "__main__":

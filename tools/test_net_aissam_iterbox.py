@@ -223,9 +223,9 @@ def setup(args):
     return cfg
 
 oracle = False
-pred_iou = True
+pred_iou = False
 matcher_iou = 0.9
-filter_threshold = 0.6
+filter_threshold = 0.5
 vit_type = 'vit_h'
 dataset_name = 'kins'
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
@@ -233,8 +233,8 @@ ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_16000
 ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
 #ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
 #ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
-result_save_path = '/work/weientai18/result_h_AUGsamiou_w.05_139_0.6_filter.json'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240406_165507_139_AUGamodal_iou_l1.05'
+result_save_path = '/work/weientai18/result_h_AUGsam_149_iterbox.json'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_149_AUGamodal'
 
 
 img_suffix = {
@@ -278,6 +278,28 @@ def save_instance_result(img_id, masks, classes, scores):
         cat_id = classes[i].item()
         score = scores[i].item()
         result_list.append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
+
+def find_bounding_boxes(masks):
+    
+    bounding_boxes = []
+    for i in range(masks.size(0)):
+        mask = masks[i, 0]  # Get the i-th mask with shape (H, W)
+        
+        # Find the non-zero indices
+        non_zero_indices = torch.nonzero(mask, as_tuple=False)
+        
+        if non_zero_indices.size(0) == 0:
+            # No non-zero indices, append an empty box or handle appropriately
+            bounding_boxes.append([0, 0, 0, 0])
+            continue
+        
+        y_min, x_min = torch.min(non_zero_indices, dim=0).values
+        y_max, x_max = torch.max(non_zero_indices, dim=0).values
+        
+        # Append bounding box (converting to x_min, y_min, x_max, y_max format)
+        bounding_boxes.append([x_min.item(), y_min.item(), x_max.item(), y_max.item()])
+    
+    return torch.as_tensor(bounding_boxes, dtype=torch.float, device=device)
 
 def main(args):
     torch.manual_seed(0)
@@ -358,6 +380,28 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
+            
+            # round 2 mask prediction
+            round2_box = find_bounding_boxes(pred_mask)
+            round2_box = transform.apply_boxes_torch(round2_box, original_size)
+            round2_box = torch.as_tensor(round2_box, dtype=torch.float, device=device)
+            sparse_emb_2, dense_emb_2 = sam_model.prompt_encoder(
+                points=None,
+                boxes=round2_box,
+                masks=None,
+            )
+            low_res_2, iou_pred_2 = sam_model.mask_decoder(
+                image_embeddings=image_embedding,
+                image_pe=sam_model.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_emb_2,
+                dense_prompt_embeddings=dense_emb_2,
+                multimask_output=False,
+            )
+            upscaled_2 = sam_model.postprocess_masks(low_res_2, input_size, original_size).to(device)
+            pred_mask_2 = upscaled_2 > mask_threshold
+
+
+
             if oracle:
                 fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
                 match_asegm = asegm[matched_idxs].clone()
@@ -371,7 +415,8 @@ def main(args):
                 pred_mask = pred_mask[tp_index]
                 ais_cls = ais_cls[tp_index]
                 ais_score = ais_score[tp_index]
-            save_instance_result(img_id, pred_mask, ais_cls, ais_score)
+            
+            save_instance_result(img_id, pred_mask_2, ais_cls, ais_score)
     
     print('num of empty prediction:', empty_img)
     print('num of filter out instances:', filter_preds)
