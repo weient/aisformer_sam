@@ -223,9 +223,9 @@ def setup(args):
     return cfg
 
 oracle = False
-pred_iou = True
 matcher_iou = 0.9
-filter_threshold = 0.6
+pred_iou = False
+filter_threshold = [0.6, 0.7, 0.75, 0.8]
 vit_type = 'vit_h'
 dataset_name = 'kins'
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
@@ -233,8 +233,10 @@ ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_16000
 ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
 #ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
 #ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
-result_save_path = '/work/weientai18/result_h_AUGsamiou_w.05_139_0.6_filter.json'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240406_165507_139_AUGamodal_iou_l1.05'
+result_save_root = '/work/weientai18/'
+#result_save_path = 'result_h_AUGsamiou_cocoa_w.05_269_0.7_filter.json'
+result_save_path = 'result_h_AUGsam_99'
+sam_ckpt = '/work/weientai18/model_20240321_200518_99_AUGamodal'
 
 
 img_suffix = {
@@ -263,21 +265,24 @@ anno_path = anno_dict[dataset_name]
 anchor_matcher = Matcher(
         thresholds=[matcher_iou], labels=[0, 1], allow_low_quality_matches=False
     )
-result_list = []
+result_list = {}
 
-def save_instance_result(img_id, masks, classes, scores):
+def save_instance_result(img_id, masks, classes, scores, suffix):
     if dataset_name == 'cocoa':
         ais_to_ann = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46, 41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
     if dataset_name == 'kins':
         ais_to_ann = {0: 1, 1: 2, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8}
-    for i, mask in enumerate(masks):
-        mask = torch.squeeze(mask, 0)
+    if suffix not in result_list.keys():
+        result_list[suffix] = []
+    for i, m in enumerate(masks):
+        mask = torch.squeeze(m, 0)
         np_mask = mask.detach().cpu().numpy().astype(np.uint8)
         rle_mask = encode(np.asfortranarray(np_mask))
         rle_mask['counts'] = rle_mask['counts'].decode('ascii')
         cat_id = classes[i].item()
         score = scores[i].item()
-        result_list.append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
+        result_list[suffix].append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
+
 
 def main(args):
     torch.manual_seed(0)
@@ -309,7 +314,7 @@ def main(args):
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
     samples = random.sample(range(len(dataset)), 10)
     empty_img = 0
-    filter_preds = 0
+    filter_preds = {}
     for i, data in enumerate(data_loader):
         data = [None if x == [] else x for x in data]
         image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path, area = data
@@ -358,25 +363,37 @@ def main(args):
             )
             upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
             pred_mask = upscaled_masks > mask_threshold
+
             if oracle:
                 fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
                 match_asegm = asegm[matched_idxs].clone()
                 match_asegm[fp_idxs] = pred_mask[fp_idxs].to(match_asegm.dtype)
                 pred_mask = match_asegm
-            
+
+            save_instance_result(img_id, pred_mask, ais_cls, ais_score, "")
+
             if pred_iou:
-                tp_index = (iou_predictions >= filter_threshold).nonzero() 
-                tp_index = tp_index[:, 0]
-                filter_preds += pred_mask.shape[0] - tp_index.shape[0]
-                pred_mask = pred_mask[tp_index]
-                ais_cls = ais_cls[tp_index]
-                ais_score = ais_score[tp_index]
-            save_instance_result(img_id, pred_mask, ais_cls, ais_score)
+                for th in filter_threshold:
+                    if th not in filter_preds.keys():
+                        filter_preds[th] = 0
+                    tp_index = (iou_predictions >= th).nonzero() 
+                    tp_index = tp_index[:, 0]
+                    filter_preds[th] += pred_mask.shape[0] - tp_index.shape[0]
+                    filter_mask = pred_mask[tp_index]
+                    filter_ais_cls = ais_cls[tp_index]
+                    filter_ais_score = ais_score[tp_index]
+                    save_instance_result(img_id, filter_mask, filter_ais_cls, filter_ais_score, th)
     
+    for th in result_list.keys():
+        if th == "":
+            p = os.path.join(result_save_root, result_save_path+'.json')
+        else:
+            p = os.path.join(result_save_root, result_save_path+'_{}_filter.json'.format(th))
+            print('num of filter out instances of threshold {}: {}'.format(th, filter_preds[th]))
+        with open(p, 'w') as f:
+            json.dump(result_list[th], f)
+
     print('num of empty prediction:', empty_img)
-    print('num of filter out instances:', filter_preds)
-    with open(result_save_path, 'w') as f:
-        json.dump(result_list, f)
 
 
 if __name__ == "__main__":

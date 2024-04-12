@@ -227,15 +227,15 @@ def setup(args):
 matcher_iou = 0.5
 #filter_threshold = 0.5
 vit_type = 'vit_h'
-dataset_name = 'kins'
+dataset_name = 'cocoa'
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
-ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
-ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
-#ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
-#ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
+#ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
+#ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
+ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
+ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
 #result_save_path = '/work/weientai18/result_h_oracle_0.8.json'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_149_AUGamodal'
-vis_save_root = '/work/weientai18/aissam_iterbox'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240328_034832_59_GTamodal_coco'
+vis_save_root = '/work/weientai18/aissam_iterbox_cocoa'
 
 
 img_suffix = {
