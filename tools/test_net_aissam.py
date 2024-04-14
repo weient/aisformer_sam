@@ -223,9 +223,9 @@ def setup(args):
     return cfg
 
 oracle = False
-matcher_iou = 0.9
-pred_iou = False
-filter_threshold = [0.6, 0.7, 0.75, 0.8]
+matcher_iou = 0.6
+pred_iou = True
+#filter_threshold = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
 vit_type = 'vit_h'
 dataset_name = 'kins'
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
@@ -233,10 +233,10 @@ ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_16000
 ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
 #ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
 #ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
-result_save_root = '/work/weientai18/'
+result_save_root = '/work/weientai18'
 #result_save_path = 'result_h_AUGsamiou_cocoa_w.05_269_0.7_filter.json'
-result_save_path = 'result_h_AUGsam_99'
-sam_ckpt = '/work/weientai18/model_20240321_200518_99_AUGamodal'
+result_save_path = 'result_h_AUGsamiou_w.05_199'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240406_165507_199_AUGamodal_iou_l1.05'
 
 
 img_suffix = {
@@ -314,7 +314,7 @@ def main(args):
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
     samples = random.sample(range(len(dataset)), 10)
     empty_img = 0
-    filter_preds = {}
+    #filter_preds = {}
     for i, data in enumerate(data_loader):
         data = [None if x == [] else x for x in data]
         image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path, area = data
@@ -373,6 +373,9 @@ def main(args):
             save_instance_result(img_id, pred_mask, ais_cls, ais_score, "")
 
             if pred_iou:
+                ais_score *= iou_predictions.squeeze(1)
+                save_instance_result(img_id, pred_mask, ais_cls, ais_score, "iou")
+                '''
                 for th in filter_threshold:
                     if th not in filter_preds.keys():
                         filter_preds[th] = 0
@@ -383,13 +386,13 @@ def main(args):
                     filter_ais_cls = ais_cls[tp_index]
                     filter_ais_score = ais_score[tp_index]
                     save_instance_result(img_id, filter_mask, filter_ais_cls, filter_ais_score, th)
-    
+                '''
     for th in result_list.keys():
         if th == "":
             p = os.path.join(result_save_root, result_save_path+'.json')
         else:
             p = os.path.join(result_save_root, result_save_path+'_{}_filter.json'.format(th))
-            print('num of filter out instances of threshold {}: {}'.format(th, filter_preds[th]))
+            #print('num of filter out instances of threshold {}: {}'.format(th, filter_preds[th]))
         with open(p, 'w') as f:
             json.dump(result_list[th], f)
 

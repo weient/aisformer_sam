@@ -227,15 +227,14 @@ pred_iou = False
 matcher_iou = 0.9
 filter_threshold = 0.5
 vit_type = 'vit_h'
-dataset_name = 'cocoa'
+dataset_name = 'kins'
 #ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
-#ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
-#ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
-ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
-ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
-result_save_path = '/work/weientai18/result_iterbox/result_h_GTAMsam_19_iterbox_cocoa.json'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240328_034832_19_GTamodal_coco'
-
+ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
+ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
+#ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
+#ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
+result_save_path = '/work/weientai18/result_iterbox/result_h_AUGsam_49_iterbox.json'
+sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240321_200518_49_AUGamodal'
 
 img_suffix = {
     'kins':'.png',
