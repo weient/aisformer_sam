@@ -7,12 +7,10 @@ ID=159
 
 # TODO: specify experiment config
 ## kins
-#config_path="configs/KINS-AmodalSeg/aisformer_R_50_FPN_1x_amodal_kins.yaml"
-#output_dir="/work/weientai18/aisformer/full_training"
+config_path="configs/KINS-AmodalSeg/aisformer_R_50_FPN_1x_amodal_kins.yaml"
 ## d2sa
 #config_path="configs/D2SA-AmodalSeg/aisformer_R_50_FPN_1x_amodal_d2sa.yaml"
 
 ## cocoa
-config_path="configs/COCOA_cls-AmodalSeg/aisformer_R_50_FPN_1x_amodal_cocoa_cls.yaml"
-output_dir="/work/weientai18/aisformer/full_training_cocoa_pre"
+#config_path="configs/COCOA_cls-AmodalSeg/aisformer_R_50_FPN_1x_amodal_cocoa_cls.yaml"
 python3 tools/train_net.py --num-gpus 1 --config-file ${config_path} 2>&1

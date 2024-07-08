@@ -7,7 +7,6 @@ ID=159
 
 
 # trained model path and config
-output_dir="/work/weientai18/"
 #test_ckpt="model_0119999_best.pth"
 #python3 tools/train_net_aissam.py --num-gpus 1 \
 #        --config-file ${output_dir}/config.yaml \

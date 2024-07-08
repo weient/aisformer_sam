@@ -248,8 +248,8 @@ def register_all_ade20k(root):
 
 def register_kins():
     register_coco_instances("kins_dataset_train", {}, 
-        "/home/weientai18/ais/data/datasets/KINS/annotations/train_amodal.json", 
-        "/home/weientai18/ais/data/datasets/KINS/train_imgs"
+        "/home/u6693411/ais/data/datasets/KINS/annotations/train_amodal.json", 
+        "/home/u6693411/ais/data/datasets/KINS/train_imgs"
     )
     
     meta = MetadataCatalog.get('kins_dataset_train')
@@ -262,8 +262,8 @@ def register_kins():
         "/home/weientai18/ais/data/datasets/KINS/train_imgs"
     '''
     register_coco_instances("kins_dataset_val", {}, 
-        "/home/weientai18/ais/data/datasets/KINS/annotations/test.json", 
-        "/home/weientai18/ais/data/datasets/KINS/test_imgs"
+        "/home/u6693411/ais/data/datasets/KINS/annotations/test.json", 
+        "/home/u6693411/ais/data/datasets/KINS/test_imgs"
     )
 
     meta = MetadataCatalog.get('kins_dataset_val')
@@ -276,24 +276,24 @@ def register_COCOA():
     # train data
     register_coco_instances(
         "cocoa_cls_train", {},
-        "/home/weientai18/ais/data/datasets/COCOA/annotations/train_amodal.json",
-        "/home/weientai18/ais/data/datasets/COCOA/train_imgs"
+        "/home/u6693411/ais/data/datasets/COCOA/annotations/train_amodal.json",
+        "/home/u6693411/ais/data/datasets/COCOA/train_imgs"
     )
     meta = MetadataCatalog.get("cocoa_cls_train")
     cocoa_cat_list = None
-    with open('/home/weientai18/ais/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
+    with open('/home/u6693411/ais/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
         cocoa_cat_list = pickle.load(fp)
     meta.thing_classes = cocoa_cat_list
 
     # val data
     register_coco_instances(
         "cocoa_cls_val", {},
-        "/home/weientai18/ais/data/datasets/COCOA/annotations/test.json",
-        "/home/weientai18/ais/data/datasets/COCOA/test_imgs"
+        "/home/u6693411/ais/data/datasets/COCOA/annotations/test.json",
+        "/home/u6693411/ais/data/datasets/COCOA/test_imgs"
     )
     meta = MetadataCatalog.get("cocoa_cls_val")
     cocoa_cat_list = None
-    with open('/home/weientai18/ais/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
+    with open('/home/u6693411/ais/data/datasets/COCOA/cocoa_cat_list', 'rb') as fp:
         cocoa_cat_list = pickle.load(fp)
     meta.thing_classes = cocoa_cat_list
 

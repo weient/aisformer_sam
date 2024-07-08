@@ -1,0 +1,23 @@
+# ninja log v5
+5	5869	1715676111876694625	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/cocoeval/cocoeval.o	257c1ef1ddb5e697
+5871	14592	1715676120596756947	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/cuda_version.o	1966e5c30af777dc
+1	17307	1715676123288669061	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/box_iou_rotated/box_iou_rotated_cpu.o	e534982c1a246283
+0	20266	1715676126255809937	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/ROIAlignRotated/ROIAlignRotated_cpu.o	91fa029c03214dca
+17326	29725	1715676135725766161	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/nms_rotated/nms_rotated_cpu.o	dc1bb0c3f05338b2
+29726	63393	1715676169390576249	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/vision.o	14b62f38b1e5a916
+1	112488	1715676218442365114	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/deformable/deform_conv_cuda_kernel.o	a054eab81e2f8f0e
+1	115135	1715676221079282321	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/box_iou_rotated/box_iou_rotated_cuda.o	4951419747db83fa
+1	119214	1715676225191460297	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/ROIAlignRotated/ROIAlignRotated_cuda.o	a798f78325924e4a
+14592	126983	1715676232963856690	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/deformable/deform_conv_cuda.o	eae72973f04c1ce8
+20266	145419	1715676251388495136	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/nms_rotated/nms_rotated_cuda.o	ad8b66b8ad6c27bd
+87	6308	1715676258688228788	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/cocoeval/cocoeval.o	3ae7272ab265bb7d
+82	12811	1715676265183196547	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/box_iou_rotated/box_iou_rotated_cpu.o	adcf04addb10a495
+81	13998	1715676266350788575	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/ROIAlignRotated/ROIAlignRotated_cpu.o	4731c79995b59204
+6308	16470	1715676268848860727	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/cuda_version.o	db62e07bd5a2bad4
+13998	25556	1715676277929783798	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/nms_rotated/nms_rotated_cpu.o	203e83a88b527661
+25556	64570	1715676316930182371	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/vision.o	34073c7353805315
+82	103437	1715676355775883897	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/ROIAlignRotated/ROIAlignRotated_cuda.o	f2d242e358230f55
+84	111461	1715676363813981068	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/box_iou_rotated/box_iou_rotated_cuda.o	6996d272b4bde831
+82	114583	1715676366932262738	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/deformable/deform_conv_cuda_kernel.o	758d8fbef2bd198c
+12815	123559	1715676375908347043	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/deformable/deform_conv_cuda.o	53f027cca69841f5
+16470	143308	1715676395652743685	/home/u6693411/ais/AISFormer/build/temp.linux-x86_64-3.9/home/u6693411/ais/AISFormer/detectron2/layers/csrc/nms_rotated/nms_rotated_cuda.o	1faac7a1a90077de

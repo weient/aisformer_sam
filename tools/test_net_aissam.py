@@ -63,6 +63,7 @@ import random
 from segment_anything import SamPredictor, sam_model_registry
 from tools.transforms import ResizeLongestSide
 from pycocotools.mask import encode
+import torchvision.transforms.functional as TF
 def build_evaluator(cfg, dataset_name, output_folder=None):
     """
     Create evaluator(s) for a given dataset.
@@ -143,6 +144,62 @@ def polys_to_mask(polygons, height, width):
 	rle = mask_utils.merge(rles)
 	mask = mask_utils.decode(rle)
 	return mask
+
+def generate_random_colors(num_colors):
+    R = random.sample(range(50, 200), num_colors)
+    G = random.sample(range(50, 200), num_colors)
+    B = random.sample(range(50, 200), num_colors)
+    colors = list(zip(R, G, B))
+    return colors
+
+def blend(b, g, r, mask, img):
+    mask = mask.cpu().numpy().astype(np.uint8)
+    mask = np.stack((b*mask, g*mask, r*mask), axis=2)
+    img = cv2.addWeighted(img, 1, mask, 0.7, 0)
+    return img
+
+def vis(img_path, ais_box, gt_box, sam_mask, ais_mask, gt_mask):
+
+    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    img_name = img_path.split('/')[-1]
+
+    save_path = os.path.join('/work/u6693411/', img_name)
+    sam_img = copy.deepcopy(img)
+    ais_img = copy.deepcopy(img)
+    gt_img = copy.deepcopy(img)
+    sam_img = cv2.addWeighted(sam_img, 0.2, sam_img, 0, 0)
+    ais_img = cv2.addWeighted(ais_img, 0.2, ais_img, 0, 0)
+    gt_img = cv2.addWeighted(gt_img, 0.2, gt_img, 0, 0)
+    ais_num_colors = generate_random_colors(ais_box.shape[0])
+    gt_num_colors = generate_random_colors(gt_box.shape[0])
+    color_gt = (100, 0, 255)
+    color_gt_small = (0, 255, 100)
+    color_ais = (255, 100, 0)
+    
+    for i in range(gt_box.shape[0]):
+        b, g, r = gt_num_colors[i]
+        gt_img = blend(b, g, r, gt_mask[i].squeeze(0), gt_img)
+    
+    for i in range(gt_box.shape[0]):
+        gt = gt_box[i]
+        color = color_gt
+        #color = color_gt_small if i in small_idx else color_gt
+        gt_img = cv2.rectangle(gt_img, (int(gt[0]), int(gt[1])), (int(gt[2]), int(gt[3])), color, 1)
+
+    for i in range(ais_box.shape[0]):
+        b, g, r = ais_num_colors[i]
+        sam_img = blend(b, g, r, sam_mask[i].squeeze(0), sam_img)
+        ais_img = blend(b, g, r, ais_mask[i], ais_img)
+
+    for i in range(ais_box.shape[0]):
+        ais = ais_box[i]
+        color = color_ais
+        sam_img = cv2.rectangle(sam_img, (int(ais[0]), int(ais[1])), (int(ais[2]), int(ais[3])), color, 1)
+        ais_img = cv2.rectangle(ais_img, (int(ais[0]), int(ais[1])), (int(ais[2]), int(ais[3])), color, 1)
+    
+    final_img = np.concatenate((gt_img, sam_img), axis=0)
+    final_img = np.concatenate((final_img, ais_img), axis=0)
+    cv2.imwrite(save_path, final_img)
 
 class AmodalDataset(Dataset):
     def __init__(self, dataset='kins'):
@@ -225,47 +282,52 @@ def setup(args):
 oracle = False
 matcher_iou = 0.6
 pred_iou = True
-#filter_threshold = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
+load_mask_ckpt = True
 vit_type = 'vit_h'
-dataset_name = 'kins'
-#ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_final.pth'
-ais_weight = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth'
-ais_config = '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
-#ais_config = '/work/weientai18/aisformer/full_training_cocoa_pre/config.yaml'
-#ais_weight = '/work/weientai18/aisformer/full_training_cocoa_pre/model_0007999.pth'
-result_save_root = '/work/weientai18'
-#result_save_path = 'result_h_AUGsamiou_cocoa_w.05_269_0.7_filter.json'
-result_save_path = 'result_h_AUGsamiou_w.05_199'
-sam_ckpt = '/work/weientai18/amodal_dataset/checkpoint/model_20240406_165507_199_AUGamodal_iou_l1.05'
+dataset_name = 'cocoa'
+ais_weight = '/work/u6693411/aisformer/cocoa/model_0007999.pth'
+#ais_weight = '/work/u6693411/aisformer/kins/model_0119999_best.pth'
+ais_config = '/work/u6693411/aisformer/cocoa/config.yaml'
+#ais_config = '/work/u6693411/aisformer/kins/config.yaml'
+result_save_root = '/work/u6693411'
+result_save_path = 'box+point+mask+randinit_cocoa' # _{}
+sam_ckpt = '/work/u6693411/amodal_dataset/checkpoint/model_20240611_222841' #_{}_
+sam_ckpt_suffix = 'box+point+mask+randinit_cocoa'
+prompt_ckpt_suffix = 'box+point+mask+randinit_cocoa_prompt'
+ckpt_id = [17]
+# visualize results
+draw_output = True
 
+# To run mask decoder for second time (using mask input)
+second_iter = False
 
 img_suffix = {
     'kins':'.png',
     'cocoa':'.jpg'
 }
 vit_dict = {
-    'vit_b':"/home/weientai18/SAM/SAM_ckpt/sam_vit_b_01ec64.pth", 
-    'vit_h':"/home/weientai18/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
+    'vit_b':"/home/u6693411/SAM/SAM_ckpt/sam_vit_b_01ec64.pth", 
+    'vit_h':"/home/u6693411/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
 }
 anno_dict = {
-    'kins':"/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json",
-    'cocoa':"/work/weientai18/amodal_dataset/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014.json"
+    'kins':"/work/u6693411/amodal_dataset/kins/KITTI_AMODAL_DATASET/mod_instances_val_2.json",
+    'cocoa':"/work/u6693411/amodal_dataset/cocoa/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014.json"
 }
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 img_root = {
-    'kins':'/home/weientai18/ais/data/datasets/KINS/test_imgs',
-    'cocoa':'/home/weientai18/ais/data/datasets/COCOA/test_imgs'
+    'kins':'/home/u6693411/ais/data/datasets/KINS/test_imgs',
+    'cocoa':'/home/u6693411/ais/data/datasets/COCOA/test_imgs'
 }
 imgemb_root = {
-    'kins':'/work/weientai18/amodal_dataset/testing_imgemb_h',
-    'cocoa':'/work/weientai18/amodal_dataset/coco_testing_imgemb_h'
+    'kins':'/work/u6693411/amodal_dataset/testing_imgemb_h',
+    'cocoa':'/work/u6693411/amodal_dataset/coco_testing_imgemb_h'
 }
 anno_path = anno_dict[dataset_name]
 anchor_matcher = Matcher(
         thresholds=[matcher_iou], labels=[0, 1], allow_low_quality_matches=False
     )
-result_list = {}
+
 
 def save_instance_result(img_id, masks, classes, scores, suffix):
     if dataset_name == 'cocoa':
@@ -283,6 +345,41 @@ def save_instance_result(img_id, masks, classes, scores, suffix):
         score = scores[i].item()
         result_list[suffix].append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
 
+def find_bounding_box(mask):
+    true_positions = torch.nonzero(mask, as_tuple=False)
+    
+    top_left = true_positions.min(dim=0).values
+    bottom_right = true_positions.max(dim=0).values
+    
+    return [top_left[0].item(), top_left[1].item(), bottom_right[0].item(), bottom_right[1].item()]
+
+def resize_mask(ref_mask: torch.Tensor, longest_side: int = 256):
+    """
+    Resize a mask to have its longest side equal to the specified value using PyTorch.
+
+    Args:
+        ref_mask (torch.Tensor): The mask to be resized. Expected shape is (H, W).
+        longest_side (int, optional): The length of the longest side after resizing. Default is 256.
+    """
+    height, width = ref_mask.shape[:2]
+    if height > width:
+        new_height = longest_side
+        new_width = int(width * (new_height / height))
+    else:
+        new_width = longest_side
+        new_height = int(height * (new_width / width))
+    # Resize the mask using bilinear interpolation
+    ref_mask = TF.resize(ref_mask.unsqueeze(0), [new_height, new_width], interpolation=TF.InterpolationMode.NEAREST).squeeze(0)
+
+    # Calculate padding
+    pad_height = 256 - new_height
+    pad_width = 256 - new_width
+    padding = [0, 0, pad_width, pad_height]  # Padding on the right and bottom
+
+    # Apply padding
+    ref_mask = TF.pad(ref_mask, padding, fill=0)
+
+    return ref_mask
 
 def main(args):
     torch.manual_seed(0)
@@ -299,104 +396,133 @@ def main(args):
     # setting up SAM model
     global sam_model 
     sam_model = sam_model_registry[vit_type](checkpoint=vit_dict[vit_type])
-    sam_model.mask_decoder.load_state_dict(torch.load(sam_ckpt))
-    mask_threshold = sam_model.mask_threshold
-    sam_model.to(device)
-    sam_model.eval()
-
     global transform
     transform = ResizeLongestSide(sam_model.image_encoder.img_size)
-
-    # Create datasets for training & validation
-    dataset = AmodalDataset(dataset_name)
-
-    # test dataloader
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    samples = random.sample(range(len(dataset)), 10)
-    empty_img = 0
-    #filter_preds = {}
-    for i, data in enumerate(data_loader):
-        data = [None if x == [] else x for x in data]
-        image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path, area = data
-        print(img_path[0].split('/')[-1])
-        with torch.no_grad():
-            ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(device)
-            ais_data['height'] = ais_data['height'].item()
-            ais_data['width'] = ais_data['width'].item()
-            ais_data['image_id'] = ais_data['image_id'].item()
-            img_id = ais_data['image_id']
-            original_size = [j.item() for j in original_size]
-            input_size = [j.item() for j in input_size]
-            asegm = torch.squeeze(asegm, 0)
-            bbox = torch.squeeze(bbox, 0)
-            area = torch.squeeze(area)
-            small_idx = torch.squeeze((area <= 1024).nonzero(as_tuple=False)).to(device)
-            output = aisformer([ais_data,])
-            output = output[0]['instances']
-            ais_box = output.pred_boxes.tensor
-            ais_box_copy = ais_box.clone()
-            ais_cls = output.pred_classes
-            ais_score = output.scores
-            ais_mask = output.pred_amodal_masks
-            pred_box = Boxes(ais_box)
-            gt_box = Boxes(bbox)
-            match_quality_matrix = pairwise_iou(gt_box, pred_box)
-            matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
+    global result_list
+    for ID in ckpt_id:
         
-            ais_box = transform.apply_boxes_torch(ais_box, original_size)
-            ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
-            if ais_box.shape[0] == 0:
-                empty_img += 1
-                continue
-            sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
-                points=None,
-                boxes=ais_box,
-                masks=None,
-            )
-            
-            low_res_masks, iou_predictions = sam_model.mask_decoder(
-                image_embeddings=image_embedding,
-                image_pe=sam_model.prompt_encoder.get_dense_pe(),
-                sparse_prompt_embeddings=sparse_embeddings,
-                dense_prompt_embeddings=dense_embeddings,
-                multimask_output=False,
-            )
-            upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
-            pred_mask = upscaled_masks > mask_threshold
+        result_list = {} 
+        sam_model.mask_decoder.load_state_dict(torch.load(sam_ckpt+'_{}_'.format(ID)+sam_ckpt_suffix))
+        print('****** loading {} epoch {} ******'.format(sam_ckpt_suffix, ID))
+        if load_mask_ckpt:
+            sam_model.prompt_encoder.load_state_dict(torch.load(sam_ckpt+'_{}_'.format(ID)+prompt_ckpt_suffix))
+            print('****** loading {} epoch {} ******'.format(prompt_ckpt_suffix, ID))
+        mask_threshold = sam_model.mask_threshold
+        sam_model.to(device)
+        sam_model.eval()
 
-            if oracle:
-                fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
-                match_asegm = asegm[matched_idxs].clone()
-                match_asegm[fp_idxs] = pred_mask[fp_idxs].to(match_asegm.dtype)
-                pred_mask = match_asegm
 
-            save_instance_result(img_id, pred_mask, ais_cls, ais_score, "")
+        # Create datasets for training & validation
+        dataset = AmodalDataset(dataset_name)
 
-            if pred_iou:
-                ais_score *= iou_predictions.squeeze(1)
-                save_instance_result(img_id, pred_mask, ais_cls, ais_score, "iou")
-                '''
-                for th in filter_threshold:
-                    if th not in filter_preds.keys():
-                        filter_preds[th] = 0
-                    tp_index = (iou_predictions >= th).nonzero() 
-                    tp_index = tp_index[:, 0]
-                    filter_preds[th] += pred_mask.shape[0] - tp_index.shape[0]
-                    filter_mask = pred_mask[tp_index]
-                    filter_ais_cls = ais_cls[tp_index]
-                    filter_ais_score = ais_score[tp_index]
-                    save_instance_result(img_id, filter_mask, filter_ais_cls, filter_ais_score, th)
-                '''
-    for th in result_list.keys():
-        if th == "":
-            p = os.path.join(result_save_root, result_save_path+'.json')
-        else:
-            p = os.path.join(result_save_root, result_save_path+'_{}_filter.json'.format(th))
-            #print('num of filter out instances of threshold {}: {}'.format(th, filter_preds[th]))
-        with open(p, 'w') as f:
-            json.dump(result_list[th], f)
+        # test dataloader
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
+        samples = random.sample(range(len(dataset)), 10)
+        empty_img = 0
+        #filter_preds = {}
+        for i, data in enumerate(data_loader):
+            data = [None if x == [] else x for x in data]
+            image_embedding, asegm, bbox, point, original_size, input_size, ais_data, img_path, area = data
+            print(img_path[0].split('/')[-1])
+            with torch.no_grad():
+                ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(device)
+                ais_data['height'] = ais_data['height'].item()
+                ais_data['width'] = ais_data['width'].item()
+                ais_data['image_id'] = ais_data['image_id'].item()
+                img_id = ais_data['image_id']
+                original_size = [j.item() for j in original_size]
+                input_size = [j.item() for j in input_size]
+                asegm = torch.squeeze(asegm, 0)
+                bbox = torch.squeeze(bbox, 0)
+                area = torch.squeeze(area)
+                
+                small_idx = torch.squeeze((area <= 1024).nonzero(as_tuple=False)).to(device)
+                output = aisformer([ais_data,])
+                output = output[0]['instances']
+                ais_box = output.pred_boxes.tensor
+                ais_box_copy = ais_box.clone()
+                ais_cls = output.pred_classes
+                ais_score = output.scores
+                ais_mask = output.pred_amodal_masks
+                resized_segm = torch.zeros((ais_mask.shape[0], 256, 256))
+                #aug_kernel = [3, 5, 7, 9, 11, 13]
+                for idx, j in enumerate(ais_mask):
+                    tmp = resize_mask(j)
+                    resized_segm[idx,:,:] = tmp[:,:]
+                resized_segm = torch.as_tensor(resized_segm, dtype=torch.float, device=device).unsqueeze(1)
+                pred_box = Boxes(ais_box)
+                gt_box = Boxes(bbox)
+                match_quality_matrix = pairwise_iou(gt_box, pred_box)
+                matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
+                ais_box = transform.apply_boxes_torch(ais_box, original_size)
+                ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
+                if ais_box.shape[0] == 0:
+                    empty_img += 1
+                    continue
+                sparse_embeddings, dense_embeddings = sam_model.prompt_encoder(
+                    points=None,
+                    boxes=ais_box,
+                    #masks=None,
+                    masks=resized_segm,
+                )
+                if second_iter:
+                    low_res_masks, iou_predictions = sam_model.mask_decoder(
+                        image_embeddings=image_embedding,
+                        image_pe=sam_model.prompt_encoder.get_dense_pe(),
+                        sparse_prompt_embeddings=sparse_embeddings,
+                        dense_prompt_embeddings=dense_embeddings,
+                        multimask_output=False,
+                    )
+                    # second round
+                    sec_sparse_embeddings, sec_dense_embeddings = sam_model.prompt_encoder(
+                        points=None,
+                        boxes=ais_box,
+                        masks=low_res_masks,
+                    )
+                    sec_low_res_masks, iou_predictions = sam_model.mask_decoder(
+                        image_embeddings=image_embedding,
+                        image_pe=sam_model.prompt_encoder.get_dense_pe(),
+                        sparse_prompt_embeddings=sec_sparse_embeddings,
+                        dense_prompt_embeddings=sec_dense_embeddings,
+                        multimask_output=False,
+                    )
+                    upscaled_masks = sam_model.postprocess_masks(sec_low_res_masks, input_size, original_size).to(device)
+                    pred_mask = upscaled_masks > mask_threshold
+                else:
+                    low_res_masks, iou_predictions = sam_model.mask_decoder(
+                        image_embeddings=image_embedding,
+                        image_pe=sam_model.prompt_encoder.get_dense_pe(),
+                        sparse_prompt_embeddings=sparse_embeddings,
+                        dense_prompt_embeddings=dense_embeddings,
+                        multimask_output=False,
+                    )
+                    upscaled_masks = sam_model.postprocess_masks(low_res_masks, input_size, original_size).to(device)
+                    pred_mask = upscaled_masks > mask_threshold
+                if oracle:
+                    fp_idxs = (anchor_labels == 0).nonzero(as_tuple=False).squeeze(1)
+                    match_asegm = asegm[matched_idxs].clone()
+                    match_asegm[fp_idxs] = pred_mask[fp_idxs].to(match_asegm.dtype)
+                    pred_mask = match_asegm
 
-    print('num of empty prediction:', empty_img)
+                save_instance_result(img_id, pred_mask, ais_cls, ais_score, "")
+
+                if pred_iou:
+                    ais_score *= iou_predictions.squeeze(1)
+                    save_instance_result(img_id, pred_mask, ais_cls, ais_score, "iou")
+                
+                if draw_output and i < 10:
+                    vis(img_path[0], ais_box_copy, bbox, pred_mask, ais_mask, asegm)
+                
+
+        for th in result_list.keys():
+            if th == "":
+                p = os.path.join(result_save_root, result_save_path+'_{}'.format(ID)+'.json')
+            else:
+                p = os.path.join(result_save_root, result_save_path+'_{}'.format(ID)+'_{}_filter.json'.format(th))
+                #print('num of filter out instances of threshold {}: {}'.format(th, filter_preds[th]))
+            with open(p, 'w') as f:
+                json.dump(result_list[th], f)
+        print('num of empty prediction:', empty_img)
 
 
 if __name__ == "__main__":

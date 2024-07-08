@@ -128,7 +128,6 @@ class AISFormer(nn.Module):
         roi_embeding = roi_embeding + x # long range + short range
         roi_embeding = self.norm_rois(roi_embeding.permute(0,2,3,1)).permute(0,3,1,2)
         roi_embeding = self.pixel_embed(roi_embeding)
-
         mask_embs = self.mask_embed(decoder_output)
         if self.aisformer.JUSTIFY_LOSS:
             assert self.aisformer.USE == True
