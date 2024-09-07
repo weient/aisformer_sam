@@ -65,31 +65,8 @@ from tools.transforms import ResizeLongestSide
 from pycocotools.mask import encode
 import io
 from PIL import Image
-from amodal_efficient_sam.efficient_sam.build_efficient_sam import build_efficient_sam_vitt, build_efficient_sam_vits, build_efficient_sam_vitslora
+from EfficientSAM.efficient_sam.build_efficient_sam import build_efficient_sam_vitt, build_efficient_sam_vits
 from tqdm import tqdm
-from pathlib import Path
-import re
-ais_weight = {
-    'kins':'/work/u6693411/aisformer/kins/model_0119999_best.pth',
-    'cocoa':'/work/u6693411/aisformer/cocoa/model_0007999.pth'
-}
-ais_config = {
-    'kins':'/work/u6693411/aisformer/kins/config.yaml',
-    'cocoa':'/work/u6693411/aisformer/cocoa/config.yaml'
-}
-img_suffix = {
-    'kins':'.png',
-    'cocoa':'.jpg'
-}
-anno_dict = {
-    'kins':"/work/u6693411/amodal_dataset/kins/KITTI_AMODAL_DATASET/mod_instances_val_2.json",
-    'cocoa':"/work/u6693411/amodal_dataset/cocoa/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014.json"
-}
-img_root = {
-    'kins':'/work/u6693411/aisformer/data/datasets/KINS/test_imgs',
-    'cocoa':'/work/u6693411/aisformer/data/datasets/COCOA/test_imgs'
-}
-
 def build_evaluator(cfg, dataset_name, output_folder=None):
     """
     Create evaluator(s) for a given dataset.
@@ -165,7 +142,6 @@ class Trainer(DefaultTrainer):
 def rle_to_mask(rle):
     mask = mask_utils.decode(rle)
     return mask
-
 def polys_to_mask(polygons, height, width):
 	rles = mask_utils.frPyObjects(polygons, height, width)
 	rle = mask_utils.merge(rles)
@@ -174,11 +150,13 @@ def polys_to_mask(polygons, height, width):
 
 
 class AmodalDataset(Dataset):
-    def __init__(self, args):
-        self.dataset = args.dataset_name
+    def __init__(self, dataset='kins'):
+        self.dataset = dataset
+        self.cur_imgid = None
+        self.cur_imgemb = None
         self.ais_aug = T.AugmentationList([T.ResizeShortestEdge(short_edge_length=(800, 800), max_size=3000, sample_style='choice')])
-        self.img_root = img_root[self.dataset]
-        self.anno_path = anno_dict[self.dataset]
+        self.img_root = img_root[dataset]
+        self.anno_path = anno_path
         with open(self.anno_path) as f:
             anns = json.load(f)
             self.imgs_info = anns['images']
@@ -189,7 +167,7 @@ class AmodalDataset(Dataset):
         img_name = self.imgs_info[index]['file_name']
         img_path = os.path.join(self.img_root, img_name)
         image_np = np.array(Image.open(img_path))
-        img_tensor = transforms.ToTensor()(image_np)
+        img_tensor = transforms.ToTensor()(image_np).to(device)
 
         # for aisformer input data dictionary
         ais_data = {'file_name': img_path}
@@ -208,14 +186,20 @@ class AmodalDataset(Dataset):
             asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
         if self.dataset == 'cocoa':
             asegm = np.stack([rle_to_mask(mask) for mask in asegm])
-        asegm = torch.as_tensor(asegm, dtype=torch.float).unsqueeze(1)  
+        asegm = torch.as_tensor(asegm, dtype=torch.float, device=device).unsqueeze(1)  
 
         # amodal box GT
         abbox = np.array([anno["bbox"] for anno in self.anns_info[str(img_id)]])
         box_torch = np.hstack((abbox[:, :2], abbox[:, :2] + abbox[:, 2:]))
-        box_torch = torch.as_tensor(box_torch, dtype=torch.float)
+        box_torch = torch.as_tensor(box_torch, dtype=torch.float, device=device)
 
-        return img_tensor, asegm, ais_data, box_torch
+        # instance area
+        area = torch.tensor([anno['area'] for anno in self.anns_info[str(img_id)]])
+
+        # for visualization
+        gt_cls = [anno['category_id'] for anno in self.anns_info[str(img_id)]]
+        
+        return img_tensor, asegm, ais_data, img_path, box_torch, area, gt_cls
 
     def __len__(self):
         return len(self.imgs_info)
@@ -234,6 +218,57 @@ def setup(args):
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
+
+pred_iou = True
+point_and_box = False
+point_num = 5
+
+dataset_name = 'kins'
+#ais_weight = '/work/u6693411/aisformer/cocoa/model_0007999.pth'
+ais_weight = '/work/u6693411/aisformer/kins/model_0119999_best.pth'
+#ais_config = '/work/u6693411/aisformer/cocoa/config.yaml'
+ais_config = '/work/u6693411/aisformer/kins/config.yaml'
+result_save_root = '/work/u6693411'
+result_save_path = 'eff_sam_test' # _{}
+sam_ckpt = '/work/u6693411/amodal_dataset/checkpoint/model_20240519_002002' #_{}_
+sam_ckpt_suffix = 'eff_sam_pix2ges_w.05_a.6'
+ckpt_id = [7]
+load_encoder = False
+encoder_ckpt = '/work/u6693411/amodal_dataset/checkpoint/encoder_model_20240713_131945'
+
+
+img_suffix = {
+    'kins':'.png',
+    'cocoa':'.jpg'
+}
+
+anno_dict = {
+    'kins':"/work/u6693411/amodal_dataset/kins/KITTI_AMODAL_DATASET/mod_instances_val_2.json",
+    'cocoa':"/work/u6693411/amodal_dataset/cocoa/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014.json"
+}
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+img_root = {
+    'kins':'/work/u6693411/aisformer/data/datasets/KINS/test_imgs',
+    'cocoa':'/work/u6693411/aisformer/data/datasets/COCOA/test_imgs'
+}
+anno_path = anno_dict[dataset_name]
+
+def save_instance_result(img_id, masks, classes, scores, suffix):
+    if dataset_name == 'cocoa':
+        ais_to_ann = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46, 41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
+    if dataset_name == 'kins':
+        ais_to_ann = {0: 1, 1: 2, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8}
+    if suffix not in result_list.keys():
+        result_list[suffix] = []
+    for i, m in enumerate(masks):
+        mask = torch.squeeze(m, 0)
+        np_mask = mask.detach().cpu().numpy().astype(np.uint8)
+        rle_mask = encode(np.asfortranarray(np_mask))
+        rle_mask['counts'] = rle_mask['counts'].decode('ascii')
+        cat_id = classes[i].item()
+        score = scores[i].item()
+        result_list[suffix].append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
 
 def pick_rand_point(isegm, num_fp):
     
@@ -265,137 +300,79 @@ def pick_rand_point(isegm, num_fp):
     #vis_point(img_name, cor_tensor, isegm, num_fp, num_bp)
     return cor_tensor, lab_tensor
 
-class AIS_eval:
-    def __init__(self, args):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.args = args
-        cfg = setup(args)
-        self.aisformer = Trainer.build_model(cfg)
-        DetectionCheckpointer(self.aisformer, save_dir=cfg.OUTPUT_DIR).resume_or_load(
-            cfg.MODEL.WEIGHTS, resume=args.resume
-        )
-        self.aisformer.to(self.device)
-        self.aisformer.eval()
 
-    @staticmethod
-    def parse_model_info(filename):
-        # Extract the base filename without the path
-        base_name = os.path.basename(filename)
-        
-        # Use regex to find either "full" or "lora" followed by digits, and optionally another underscore and digits for lora rank
-        match = re.search(r'(full|lora)(\d+)(?:_(\d+))?', base_name)
-        
-        if match:
-            model_type = match.group(1)  # This will be either "full" or "lora"
-            number = int(match.group(2))  # This will be the number following "full" or "lora"
-            lora_rank = int(match.group(3)) if match.group(3) and model_type == "lora" else None
-            return model_type, number, lora_rank
-        else:
-            return "decoder_only", 0, 0
+def main(args):
+    torch.manual_seed(0)
+    # setting up AISFormer model
+    cfg = setup(args)
+    global aisformer 
+    aisformer = Trainer.build_model(cfg)
+    DetectionCheckpointer(aisformer, save_dir=cfg.OUTPUT_DIR).resume_or_load(
+        cfg.MODEL.WEIGHTS, resume=args.resume
+    )
+    aisformer.to(device)
+    aisformer.eval()
 
-    def load_model(self):
-        if self.model_type == "lora":
-            print(f'Building LoRA EfficientSAM, # rank: {self.lora_rank}, # encoder block: {self.model_block}')
-            self.model = build_efficient_sam_vitslora(lora_rank=self.lora_rank, block_num=self.model_block)
-        else:
-            print(f'Building Original EfficientSAM, # encoder block to load ckpt: {self.model_block}')
-            self.model = build_efficient_sam_vits()
-
-    def load_ckpt(self, ckpt_name):
-        self.ckpt_name = ckpt_name
-        print(f'\nLoading checkpoint: {self.ckpt_name}')
-        model_type, model_block, lora_rank = self.parse_model_info(ckpt_name)
-        self.model_type = model_type
-        self.model_block= model_block
-        self.lora_rank = lora_rank
-
-        self.load_model()
-        checkpoint = torch.load(os.path.join(self.args.test_ckpt_root, ckpt_name))
-        self.model.mask_decoder.load_state_dict(checkpoint['decoder'])
-        # load encoder ckpt if block number is not none
-        if self.model_block:
-            self.model.image_encoder.load_state_dict(checkpoint['encoder'])
-        
-        self.model.to(self.device)
-        self.model.eval()
-
-    def load_dataset(self):
-        self.dataset = AmodalDataset(self.args)
-        self.testing_loader = DataLoader(self.dataset, batch_size=1, shuffle=False)
-        print(f'Dataset Length for {self.args.dataset_name} test set: {len(self.testing_loader)}')
-
-    def save_instance_result(self, img_id, masks, classes, scores):
-        result_list = []
-        if self.args.dataset_name == 'cocoa':
-            ais_to_ann = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46, 41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
-        if self.args.dataset_name == 'kins':
-            ais_to_ann = {0: 1, 1: 2, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8}
-        
-        for i, m in enumerate(masks):
-            mask = torch.squeeze(m, 0)
-            np_mask = mask.detach().cpu().numpy().astype(np.uint8)
-            rle_mask = encode(np.asfortranarray(np_mask))
-            rle_mask['counts'] = rle_mask['counts'].decode('ascii')
-            cat_id = classes[i].item()
-            score = scores[i].item()
-            result_list.append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
-        return result_list
-    
-    def check_save_root(self, path):
-        p = Path(path)
-        p.mkdir(parents=True, exist_ok=True)
-
-    def save_json(self, result_dict):
-
-        self.check_save_root(self.args.result_save_root)
-        path = os.path.join(self.args.result_save_root, f'{self.ckpt_name}_iou.json')
-        with open(path, 'w') as f:
-            json.dump(result_dict["iou"], f)
-        path = os.path.join(self.args.result_save_root, f'{self.ckpt_name}.json')
-        with open(path, 'w') as f:
-            json.dump(result_dict["no_iou"], f)
-        
-    def run_eval(self):
-        result_dict = {"no_iou":[], "iou":[]}
+    global result_list
+    for ID in ckpt_id:
+        result_list = {} 
+        # setting up eff SAM model
+        efficient_sam = build_efficient_sam_vits()
+        print('***** loading EfficientSAM decoder epoch {} *****'.format(ID))
+        if load_encoder:
+            print('***** loading EfficientSAM encoder epoch {} *****'.format(ID))
+            efficient_sam.image_encoder.load_state_dict(torch.load(encoder_ckpt+'_{}_'.format(ID)+sam_ckpt_suffix))
+        efficient_sam.mask_decoder.load_state_dict(torch.load(sam_ckpt+'_{}_'.format(ID)+sam_ckpt_suffix))
+        efficient_sam.to(device)
+        efficient_sam.eval()
         mask_threshold = 0
+
+        # Create datasets for training & validation
+        dataset = AmodalDataset(dataset_name)
+
+        # test dataloader
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
         empty_img = 0
-        for i, data in enumerate(tqdm(self.testing_loader)):
-            img_tensor, asegm, ais_data, abbox = data
+        for i, data in enumerate(tqdm(data_loader)):
+            img_tensor, asegm, ais_data, img_path, abbox, area, gt_cls = data
             
             with torch.no_grad():
-                ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(self.device)
+                ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(device)
                 ais_data['height'] = ais_data['height'].item()
                 ais_data['width'] = ais_data['width'].item()
                 ais_data['image_id'] = ais_data['image_id'].item()
                 img_id = ais_data['image_id']
-                output = self.aisformer([ais_data,])
+                output = aisformer([ais_data,])
                 output = output[0]['instances']
                 ais_box = output.pred_boxes.tensor
+                ais_box_copy = ais_box.clone()
                 ais_cls = output.pred_classes
                 ais_score = output.scores
                 ais_mask = output.pred_amodal_masks
-                ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=self.device)
+                ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=device)
                 if ais_box.shape[0] == 0:
                     empty_img += 1
                     continue
                 ais_box = ais_box.reshape((-1, 2, 2)).unsqueeze(0)
                 box_label = torch.tensor([2,3])
-                box_label = box_label.repeat(ais_box.shape[1], 1).unsqueeze(0).to(self.device)
+                box_label = box_label.repeat(ais_box.shape[1], 1).unsqueeze(0).to(device)
                 prompt = ais_box
                 prompt_label = box_label
                 
                 # evaluate with point + box
-                '''if point_and_box:
+                if point_and_box:
+                    #ais_visible_mask = output.pred_visible_masks
                     ais_point, point_label = pick_rand_point(ais_mask.unsqueeze(1), point_num)
+                    #vis_point(img_path[0], img_path[0].split('/')[-1], ais_point, ais_visible_mask.unsqueeze(1), point_num)
                     ais_point = ais_point.unsqueeze(0)
                     point_label = point_label.unsqueeze(0).to(device)
                     prompt = torch.cat((ais_box, ais_point), 2)
                     prompt_label = torch.cat((box_label, point_label), 2)
-                    '''
+                    
                 
                 # EfficientSAM prediction
-                predicted_logits, predicted_iou = self.model(
-                    img_tensor.to(self.device),
+                predicted_logits, predicted_iou = efficient_sam(
+                    img_tensor,
                     prompt,
                     prompt_label,
                 )
@@ -409,57 +386,33 @@ class AIS_eval:
                 
                 pred_mask = torch.ge(predicted_logits, mask_threshold).squeeze(0)
                 
-                result_no_iou = self.save_instance_result(img_id, pred_mask, ais_cls, ais_score)
-                ais_score *= predicted_iou.squeeze()
-                result_iou = self.save_instance_result(img_id, pred_mask, ais_cls, ais_score)
-                result_dict["iou"].extend(result_iou)
-                result_dict["no_iou"].extend(result_no_iou)
-        
-        self.save_json(result_dict)
+                save_instance_result(img_id, pred_mask, ais_cls, ais_score, "")
+                if pred_iou:
+                    ais_score *= predicted_iou.squeeze()
+                    save_instance_result(img_id, pred_mask, ais_cls, ais_score, "iou")
 
-    def Eval(self):
-        all_ckpt = os.listdir(self.args.test_ckpt_root)
-        for ckpt in all_ckpt:
-            self.load_ckpt(ckpt)
-            self.load_dataset()
-            self.run_eval()
+        for th in result_list.keys():
+            if th == "":
+                p = os.path.join(result_save_root, result_save_path+'_{}'.format(ID)+'.json')
+            else:
+                p = os.path.join(result_save_root, result_save_path+'_{}'.format(ID)+'_{}_filter.json'.format(th))
+                #print('num of filter out instances of threshold {}: {}'.format(th, filter_preds[th]))
+            with open(p, 'w') as f:
+                json.dump(result_list[th], f)
 
-def main(args):
-    evaluator = AIS_eval(args)
-    evaluator.Eval()
+        print('num of empty prediction:', empty_img)
 
-def everytype2bool(v):
-    v = v.lower()
-    if v.isnumeric():
-        return bool(int(v))
-    if v in ['', 'no', 'none', 'false']:
-        return False
-    return True
-
-def get_parser(parser):
-    
-    parser.add_argument('--dataset_name', type=str, default='cocoa', help='Name of the dataset to test with AISFormer, can be kins / cocoa')
-    parser.add_argument('--pred_iou', type=everytype2bool, default=True, help='Whether to predict IoU')
-    parser.add_argument('--point_and_box', type=everytype2bool, default=False, help='Use box + point as prompt')
-    parser.add_argument('--point_num', type=int, default=5, help='Number of point prompts')
-    parser.add_argument('--result_save_root', type=str, default='/work/u6693411/nv_ais_result', help='Root for saving aisformer eval result')
-    parser.add_argument('--test_ckpt_root', type=str, default='/work/u6693411/nv_checkpoint', help='Root of the ckpt to be evaluated')
-
-    return parser
 
 if __name__ == "__main__":
-    torch.manual_seed(0)
-    parser = default_argument_parser()
-    parser = get_parser(parser)
-    args = parser.parse_args()
-    args.config_file = ais_config[args.dataset_name]
+    args = default_argument_parser().parse_args()
+    args.config_file = ais_config
     args.resume = False
     args.eval_only = True
     args.num_gpus = 1
     args.num_machines = 1
     args.machine_rank = 0
     args.dist_url = 'tcp://127.0.0.1:64153'
-    args.opts = ['MODEL.WEIGHTS', ais_weight[args.dataset_name]]
+    args.opts = ['MODEL.WEIGHTS', ais_weight]
     print("Command Line Args:", args)
     launch(
         main,
