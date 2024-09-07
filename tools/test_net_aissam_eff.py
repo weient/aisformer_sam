@@ -346,12 +346,12 @@ class AIS_eval:
         p.mkdir(parents=True, exist_ok=True)
 
     def save_json(self, result_dict):
-
-        self.check_save_root(self.args.result_save_root)
-        path = os.path.join(self.args.result_save_root, f'{self.ckpt_name}_iou.json')
+        root = os.path.join(self.args.result_save_root, self.ckpt_name)
+        self.check_save_root(root)
+        path = os.path.join(root, 'result_iou.json')
         with open(path, 'w') as f:
             json.dump(result_dict["iou"], f)
-        path = os.path.join(self.args.result_save_root, f'{self.ckpt_name}.json')
+        path = os.path.join(root, 'result.json')
         with open(path, 'w') as f:
             json.dump(result_dict["no_iou"], f)
         
