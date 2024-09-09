@@ -419,7 +419,11 @@ class AIS_eval:
 
     def Eval(self):
         all_ckpt = os.listdir(self.args.test_ckpt_root)
+        #exist_dir = os.listdir('/work/u6693411/nv_ais_result/')
         for ckpt in all_ckpt:
+            '''if ckpt in exist_dir:
+                print(f'checkpoint {ckpt} already exist, continue')
+                continue'''
             self.load_ckpt(ckpt)
             self.load_dataset()
             self.run_eval()
