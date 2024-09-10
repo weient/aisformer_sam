@@ -30,7 +30,15 @@ def create_label(name_tuple):
 df = pd.read_excel('/home/u6693411/ais/AISFormer/final_result_iou.xlsx')
 
 
+
 df = df[df['Iteration'] != 'latest']
+
+
+# for comparing different version
+versions_to_plot = ["full 5 - box_amodal iou0.02", "full 5 - box_amodal iou0.08", "full 5 - box_amodal -"]
+mask = df.apply(lambda row: f"{row['Encoder type']} {row['Encoder block']} {row['LoRA rank']} {row['Prompt type']} {row['Setting']}" in versions_to_plot, axis=1)
+df = df[mask]
+
 
 # Group the data by Dataset
 dataset_groups = df.groupby('Dataset')

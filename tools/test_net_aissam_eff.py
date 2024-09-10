@@ -69,6 +69,8 @@ from amodal_efficient_sam.efficient_sam.build_efficient_sam import build_efficie
 from tqdm import tqdm
 from pathlib import Path
 import re
+from amodal_efficient_sam.amodal_visualize import vis_box_test, vis_box_point_test
+
 ais_weight = {
     'kins':'/work/u6693411/aisformer/kins/model_0119999_best.pth',
     'cocoa':'/work/u6693411/aisformer/cocoa/model_0007999.pth'
@@ -235,7 +237,70 @@ def setup(args):
     default_setup(cfg, args)
     return cfg
 
-def pick_rand_point(isegm, num_fp):
+def pick_rand_point(isegm, asegm, abbox, num_fp, num_bp):
+        # (ins_per_img, 1, H, W)
+        # xyxy format box
+        
+        N, C, H, W = asegm.shape
+        amask_tmp = torch.ones((N, C, H, W), dtype=asegm.dtype)
+        abbox[:, [0, 1]] = abbox[:, [0, 1]] - 10
+        abbox[:, [2, 3]] = abbox[:, [2, 3]] + 10
+        abbox[:, [0, 2]] = np.clip(abbox[:, [0, 2]], 0, W)
+        abbox[:, [1, 3]] = np.clip(abbox[:, [1, 3]], 0, H)
+        abbox = np.hstack((abbox[:, :2], abbox[:, 2:] - abbox[:, :2]))
+        for i in range(N):
+            x, y, w, h = abbox[i].astype(int)
+            amask_tmp[i, :, y:y+h, x:x+w] = asegm[i, :, y:y+h, x:x+w]
+        
+        cor_list = []
+        lab_list = []
+
+        for i in range(N):
+            # Identifying foreground and background points
+            fore_p = (isegm[i, 0] == 1).nonzero(as_tuple=False)
+            back_p = (amask_tmp[i, 0] == 0).nonzero(as_tuple=False)
+
+            # Handle the case where there are no foreground points
+            if fore_p.shape[0] == 0:
+                print("No pos point, use all neg point")
+                indices = torch.randperm(back_p.shape[0])[:num_fp+num_bp]
+                cor = back_p[indices]
+                lab = torch.tensor([0]).repeat(num_fp + num_bp)
+            elif back_p.shape[0] == 0:
+                print("No neg point, use all pos point")
+                indices = torch.randperm(fore_p.shape[0])[:num_fp+num_bp]
+                cor = fore_p[indices]
+                lab = torch.tensor([1]).repeat(num_fp + num_bp)
+            else:
+                # Handle when there are fewer foreground points than requested
+                if fore_p.shape[0] < num_fp:
+                    # Repeat the available foreground points to meet the required number
+                    fore_p = fore_p.repeat((num_fp // fore_p.shape[0]) + 1, 1)[:num_fp]
+                indices_f = torch.randperm(fore_p.shape[0])[:num_fp]
+                cor_f = fore_p[indices_f]
+                lab_f = torch.tensor([1]).repeat(num_fp)
+
+                # Handle when there are fewer background points than requested
+                if back_p.shape[0] < num_bp:
+                    # Repeat the available background points to meet the required number
+                    back_p = back_p.repeat((num_bp // back_p.shape[0]) + 1, 1)[:num_bp]
+                indices_b = torch.randperm(back_p.shape[0])[:num_bp]
+                cor_b = back_p[indices_b]
+                lab_b = torch.tensor([0]).repeat(num_bp)
+
+                cor = torch.cat((cor_f, cor_b))
+                lab = torch.cat((lab_f, lab_b))
+
+            # Adjusting coordinates order from (x, y) to (y, x) for consistency
+            cor = cor[:, [1, 0]]
+            cor_list.append(cor)
+            lab_list.append(lab)
+
+        cor_tensor = torch.stack(cor_list).to(torch.float)
+        lab_tensor = torch.stack(lab_list)
+        return cor_tensor, lab_tensor
+
+'''def pick_rand_point(isegm, num_fp):
     
     N, C, H, W = isegm.shape
     cor_list = []
@@ -263,7 +328,7 @@ def pick_rand_point(isegm, num_fp):
     cor_tensor = torch.stack(cor_list)
     lab_tensor = torch.stack(lab_list)
     #vis_point(img_name, cor_tensor, isegm, num_fp, num_bp)
-    return cor_tensor, lab_tensor
+    return cor_tensor, lab_tensor'''
 
 class AIS_eval:
     def __init__(self, args):
@@ -292,7 +357,21 @@ class AIS_eval:
             return model_type, number, lora_rank
         else:
             return "decoder_only", 0, 0
-
+    @staticmethod
+    def parse_prompt_info(filename):
+        # Extract the base filename without the path
+        base_name = os.path.basename(filename)
+        
+        # Use regex to find either "full" or "lora" followed by digits, and optionally another underscore and digits for lora rank
+        match = re.search(r'(box|random)_(random|amodal)', base_name)
+    
+        if match:
+            
+            prompt_type = match.group(1)
+            return prompt_type
+        else:
+            print('no prompt type!!')
+            return 0
     def load_model(self):
         if self.model_type == "lora":
             print(f'Building LoRA EfficientSAM, # rank: {self.lora_rank}, # encoder block: {self.model_block}')
@@ -361,7 +440,8 @@ class AIS_eval:
         empty_img = 0
         for i, data in enumerate(tqdm(self.testing_loader)):
             img_tensor, asegm, ais_data, abbox = data
-            
+            if self.args.mode_visualize and i >= self.args.vis_num:
+                break
             with torch.no_grad():
                 ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(self.device)
                 ais_data['height'] = ais_data['height'].item()
@@ -374,6 +454,7 @@ class AIS_eval:
                 ais_cls = output.pred_classes
                 ais_score = output.scores
                 ais_mask = output.pred_amodal_masks
+                ais_mask_vis = output.pred_visible_masks
                 ais_box = torch.as_tensor(ais_box, dtype=torch.float, device=self.device)
                 if ais_box.shape[0] == 0:
                     empty_img += 1
@@ -385,13 +466,20 @@ class AIS_eval:
                 prompt_label = box_label
                 
                 # evaluate with point + box
-                '''if point_and_box:
-                    ais_point, point_label = pick_rand_point(ais_mask.unsqueeze(1), point_num)
-                    ais_point = ais_point.unsqueeze(0)
-                    point_label = point_label.unsqueeze(0).to(device)
+                if self.args.point_and_box:
+
+                    ais_point, point_label = pick_rand_point(
+                        ais_mask_vis.unsqueeze(1).cpu().detach(), 
+                        ais_mask.unsqueeze(1).cpu().detach(), 
+                        ais_box.reshape((-1, 4)).cpu().detach(), 
+                        self.args.num_fp,
+                        self.args.num_bp
+                        )
+                    ais_point = ais_point.unsqueeze(0).to(self.device)
+                    point_label = point_label.unsqueeze(0).to(self.device)
                     prompt = torch.cat((ais_box, ais_point), 2)
                     prompt_label = torch.cat((box_label, point_label), 2)
-                    '''
+                    
                 
                 # EfficientSAM prediction
                 predicted_logits, predicted_iou = self.model(
@@ -409,21 +497,58 @@ class AIS_eval:
                 
                 pred_mask = torch.ge(predicted_logits, mask_threshold).squeeze(0)
                 
-                result_no_iou = self.save_instance_result(img_id, pred_mask, ais_cls, ais_score)
-                ais_score *= predicted_iou.squeeze()
-                result_iou = self.save_instance_result(img_id, pred_mask, ais_cls, ais_score)
-                result_dict["iou"].extend(result_iou)
-                result_dict["no_iou"].extend(result_no_iou)
+                if not self.args.mode_visualize:
+                    result_no_iou = self.save_instance_result(img_id, pred_mask, ais_cls, ais_score)
+                    ais_score *= predicted_iou.squeeze()
+                    result_iou = self.save_instance_result(img_id, pred_mask, ais_cls, ais_score)
+                    result_dict["iou"].extend(result_iou)
+                    result_dict["no_iou"].extend(result_no_iou)
+                else:
+                    score_filter = ais_score >= self.args.vis_score_filter
+                    score_filter = score_filter.cpu().detach()
+                    
+                    # Apply the filter to both scores and masks
+                    ais_score = ais_score[score_filter]
+                    pred_mask = pred_mask.squeeze(0)[score_filter]
+                    prompt = prompt.squeeze(0)[score_filter]
+                    abbox = abbox.reshape((-1, 2, 2))
+                    asegm = asegm.squeeze(0)
+
+                    if self.args.point_and_box:
+                        vis_box_point_test(
+                            os.path.join(self.args.vis_save_root, self.ckpt_name), 
+                            img_tensor.squeeze(0), 
+                            prompt[:, :2, :], 
+                            prompt[:, 2:, :], 
+                            pred_mask, 
+                            abbox,
+                            asegm, 
+                            self.args.num_fp, 
+                            self.args.num_bp,
+                            str(ais_data['image_id'])+'.png'
+                        )
+                    else:
+                        vis_box_test(
+                            os.path.join(self.args.vis_save_root, self.ckpt_name), 
+                            img_tensor.squeeze(0), 
+                            prompt[:, :2, :], 
+                            pred_mask, 
+                            abbox, 
+                            asegm, 
+                            str(ais_data['image_id'])+'.png'
+                        )
+                
         
-        self.save_json(result_dict)
+        if not self.args.mode_visualize:
+            self.save_json(result_dict)
 
     def Eval(self):
         all_ckpt = os.listdir(self.args.test_ckpt_root)
-        #exist_dir = os.listdir('/work/u6693411/nv_ais_result/')
         for ckpt in all_ckpt:
-            '''if ckpt in exist_dir:
-                print(f'checkpoint {ckpt} already exist, continue')
-                continue'''
+            if self.args.point_and_box:
+                prompt_type = self.parse_prompt_info(ckpt)
+                if prompt_type != 'random':
+                    continue
             self.load_ckpt(ckpt)
             self.load_dataset()
             self.run_eval()
@@ -443,11 +568,15 @@ def everytype2bool(v):
 def get_parser(parser):
     
     parser.add_argument('--dataset_name', type=str, default='cocoa', help='Name of the dataset to test with AISFormer, can be kins / cocoa')
-    parser.add_argument('--pred_iou', type=everytype2bool, default=True, help='Whether to predict IoU')
-    parser.add_argument('--point_and_box', type=everytype2bool, default=False, help='Use box + point as prompt')
-    parser.add_argument('--point_num', type=int, default=5, help='Number of point prompts')
-    parser.add_argument('--result_save_root', type=str, default='/work/u6693411/nv_ais_result', help='Root for saving aisformer eval result')
+    parser.add_argument('--point_and_box', type=everytype2bool, default=True, help='Use box + point as prompt')
+    parser.add_argument('--num_fp', type=int, default=5, help='Number of positive point prompts')
+    parser.add_argument('--num_bp', type=int, default=5, help='Number of negative point prompts')
+    parser.add_argument('--result_save_root', type=str, default='/work/u6693411/nv_ais_result_b+p', help='Root for saving aisformer eval result')
     parser.add_argument('--test_ckpt_root', type=str, default='/work/u6693411/nv_checkpoint', help='Root of the ckpt to be evaluated')
+    parser.add_argument('--mode_visualize', type=everytype2bool, default=False, help='Visualize only, do not save prediction result')
+    parser.add_argument('--vis_save_root', type=str, default='/work/u6693411/nv_ais_vis', help='Visualize only, do not save prediction result')
+    parser.add_argument('--vis_num', type=int, default=10, help='Number of images to visualize for each ckpt version')
+    parser.add_argument('--vis_score_filter', type=float, default=0.2, help='Not visualizing instances with score < this threshold')
 
     return parser
 
