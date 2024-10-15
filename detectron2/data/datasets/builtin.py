@@ -298,36 +298,36 @@ def register_D2SA():
     # train data
     register_coco_instances(
         "d2sa_train", {},
-        "/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/annotations/instances_train2017_amodal.json",
-        "/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/d2s_amodal_images_v1/images/"
+        "/home/u6693411/amodal_dataset/d2sa/D2S_amodal_training_rot0_amodal.json",
+        "/home/u6693411/amodal_dataset/d2sa/train/"
     )
     meta = MetadataCatalog.get("d2sa_train")
     d2sa_cat_list = None
-    with open('/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/d2sa_cat_list', 'rb') as fp:
+    with open('/work/u6693411/aisformer/data/datasets/D2SA/d2sa_cat_list', 'rb') as fp:
         d2sa_cat_list = pickle.load(fp)
     meta.thing_classes = d2sa_cat_list 
 
     # augmented train data
     register_coco_instances(
         "d2sa_train_aug", {},
-        "/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/annotations/instances_train_aug_2017_amodal.json",
-        "/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/d2s_amodal_images_v1/images/"
+        "/home/u6693411/amodal_dataset/d2sa/D2S_amodal_augmented_amodal.json",
+        "/home/u6693411/amodal_dataset/d2sa/train/"
     )
     meta = MetadataCatalog.get("d2sa_train_aug")
     d2sa_cat_list = None
-    with open('/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/d2sa_cat_list', 'rb') as fp:
+    with open('/work/u6693411/aisformer/data/datasets/D2SA/d2sa_cat_list', 'rb') as fp:
         d2sa_cat_list = pickle.load(fp)
     meta.thing_classes = d2sa_cat_list 
 
     # val data
     register_coco_instances(
         "d2sa_val", {},
-        "/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/annotations/instances_val2017.json",
-        "/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/d2s_amodal_images_v1/images/"
+        "/home/u6693411/amodal_dataset/d2sa/D2S_amodal_validation.json",
+        "/home/u6693411/amodal_dataset/d2sa/val/"
     )
     meta = MetadataCatalog.get("d2sa_val")
     d2sa_cat_list = None
-    with open('/home/tqminh/codes/AmodalSeg/data/datasets/D2SA/d2sa_cat_list', 'rb') as fp:
+    with open('/work/u6693411/aisformer/data/datasets/D2SA/d2sa_cat_list', 'rb') as fp:
         d2sa_cat_list = pickle.load(fp)
     meta.thing_classes = d2sa_cat_list 
 
@@ -344,4 +344,4 @@ if __name__.endswith(".builtin"):
     register_all_ade20k(_root)
     register_kins()
     register_COCOA()
-    #register_D2SA()
+    register_D2SA()

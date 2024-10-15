@@ -14,25 +14,55 @@ ANN = {
     'kins_unocc': '/work/u6693411/amodal_dataset/kins/KITTI_AMODAL_DATASET/instances_val_unocc.json'
 }
 
-
 def parse_model_info(filename):
-    # Extract the base filename without the path
-    base_name = os.path.basename(filename)
-    # Use regex to find either "full" or "lora" followed by digits, and optionally another underscore and digits for lora rank
-    match = re.search(r'(\d+|latest)_(?:(combined|all)_)?(full|lora)(\d+)(?:_(\d+))?_(box|random)_(random|amodal)(?:_([A-Za-z0-9._]+))?', base_name)
+    # Updated regex pattern to capture the number after "full"
+    print(filename)
+    pattern = r"""
+        model_
+        (?P<Dataset>all|wococo|walt)_
+        (?:(?P<Encoder_type>full)(?P<Encoder_block>\d{1})_)?
+        (?P<Prompt_type>box)_
+        (?P<box_type>random|amodal)_
+        (?P<Setting>.*?)_
+        (?:(?P<date>\d{8})_(?P<time>\d{6})_(?P<Iteration>\d+)|(?P<is_latest>latest))
+    """
     
-    if match:
-        iteration = int(match.group(1)) if match.group(1) != 'latest' else 'latest'
-        dataset = match.group(2) if match.group(2) else "pix2gestalt"
-        encoder_type = match.group(3)
-        encoder_block = int(match.group(4))
-        lora_rank = int(match.group(5)) if match.group(5) else '-'
-        prompt_type = match.group(6)+'_'+match.group(7)
-        setting = match.group(8) if match.group(8) else '-'
-        return {'Dataset':dataset, 'Encoder type':encoder_type, 'Encoder block':encoder_block, 'LoRA rank':lora_rank, 'Prompt type':prompt_type, 'Setting':setting, 'Iteration':iteration}
+    match = re.match(pattern, filename, re.VERBOSE)
+    
+    if not match:
+        print('!!filename do not match any format!!')
+        return None  # Return None if the filename doesn't match the expected format
+    
+    result = match.groupdict()
+    
+    if result['is_latest']:
+        result['Iteration'] = 'latest'
     else:
-        return {}
+        result['Iteration'] = int(result['Iteration'])
+    del result['is_latest']
+    
+    # Convert date and time to datetime object
+    #result['datetime'] = datetime.strptime(f"{result['date']}_{result['time']}", "%Y%m%d_%H%M%S")
+    del result['date']
+    del result['time']
+    
+    # Handle the 'full' number
+    if result['Encoder_block']:
+        result['Encoder block'] = int(result['Encoder_block'])
+    else:
+        result['Encoder block'] = '-'
+    del result['Encoder_block']
+    result['Prompt type'] = f"{result['Prompt_type']}_{result['box_type']}"
+    del result['Prompt_type']
+    del result['box_type']
 
+    result['Encoder type'] = result['Encoder_type']
+    del result['Encoder_type']
+
+    #result['is_latest'] = False
+    
+    return result
+    
 def dictionaries_to_excel(dict_list, save_path='result.xlsx', sort_by=None, ascending=True):
     # Convert the list of dictionaries to a DataFrame
     df = pd.DataFrame(dict_list)
@@ -78,6 +108,7 @@ def cal_result(root, file_name, dataset_name, class_agnostic):
     dir_list = []
     for d in all_dir:
         info_dic = parse_model_info(d)
+        #print(info_dic)
         resFile = os.path.join(root, d, file_name)
         annFile = ANN[dataset_name]
         result_dic = coco_eval_mask(annFile, resFile, class_agnostic)
@@ -87,19 +118,19 @@ def cal_result(root, file_name, dataset_name, class_agnostic):
     return dir_list
 
 def main():
-    dataset_name = 'kins'
+    dataset_name = 'kins_occ'
     # TODO
-    class_agnostic = False
-    root = '/work/u6693411/ais_result_kins'
+    class_agnostic = True
+    root = '/work/u6693411/ais_result_kins_nv'
     file_name = ['result_iou.json', 'result.json']
 
     for name in file_name:
         dir_list = cal_result(root, name, dataset_name, class_agnostic)
-        save_path = f'final_{name.split(".json")[0]}.xlsx' if not class_agnostic else f'final_{name.split(".json")[0]}_nocls.xlsx'
+        save_path = f'final_{name.split(".json")[0]}_kins.xlsx' if not class_agnostic else f'final_{name.split(".json")[0]}_nocls_kins.xlsx'
         dictionaries_to_excel(dir_list,
             save_path=save_path,
-            sort_by=['Dataset', 'Encoder type', 'Encoder block', 'LoRA rank', 'Prompt type', 'Setting', 'Iteration'],
-            ascending=[True, True, True, True, True, True, True])
+            sort_by=['Dataset', 'Encoder type', 'Encoder block', 'Prompt type', 'Setting', 'Iteration'],
+            ascending=[True, True, True, True, True, True])
 
 if __name__ == "__main__":
     main()

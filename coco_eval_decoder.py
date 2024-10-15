@@ -33,6 +33,24 @@ def parse_model_info(filename):
     else:
         return {}
 
+def parse_model_info_2(filename):
+    parts = filename.split('_')
+    data = {
+        'Dataset': parts[3],
+        'Prompt type': parts[4],
+        'Setting': parts[5],
+    }
+    if len(parts) == 10:
+        data['Loss type'] = parts[6]
+        data['Iteration'] = int(parts[9])
+    elif len(parts) == 9: 
+        data['Loss type'] = '-' 
+        data['Iteration'] = int(parts[8])
+    else:
+        raise ValueError(f"Unexpected filename format: {filename}")
+    
+    return data
+
 def dictionaries_to_excel(dict_list, save_path='result.xlsx', sort_by=None, ascending=True):
     # Convert the list of dictionaries to a DataFrame
     df = pd.DataFrame(dict_list)
@@ -77,7 +95,8 @@ def cal_result(root, file_name, dataset_name, class_agnostic):
     all_dir = set(os.listdir(root))
     dir_list = []
     for d in all_dir:
-        info_dic = parse_model_info(d)
+        
+        info_dic = parse_model_info_2(d)
         resFile = os.path.join(root, d, file_name)
         annFile = ANN[dataset_name]
         result_dic = coco_eval_mask(annFile, resFile, class_agnostic)
@@ -87,10 +106,10 @@ def cal_result(root, file_name, dataset_name, class_agnostic):
     return dir_list
 
 def main():
-    dataset_name = 'kins'
+    dataset_name = 'kins_unocc'
     # TODO
-    class_agnostic = False
-    root = '/work/u6693411/ais_result_kins'
+    class_agnostic = True
+    root = '/work/u6693411/ais_result_kins_df_rbbox'
     file_name = ['result_iou.json', 'result.json']
 
     for name in file_name:
@@ -98,8 +117,8 @@ def main():
         save_path = f'final_{name.split(".json")[0]}.xlsx' if not class_agnostic else f'final_{name.split(".json")[0]}_nocls.xlsx'
         dictionaries_to_excel(dir_list,
             save_path=save_path,
-            sort_by=['Dataset', 'Encoder type', 'Encoder block', 'LoRA rank', 'Prompt type', 'Setting', 'Iteration'],
-            ascending=[True, True, True, True, True, True, True])
+            sort_by=['Dataset', 'Prompt type', 'Setting', 'Loss type', 'Iteration'],
+            ascending=[True, True, True, True, True])
 
 if __name__ == "__main__":
     main()

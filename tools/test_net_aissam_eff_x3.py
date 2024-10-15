@@ -85,11 +85,11 @@ img_suffix = {
 }
 anno_dict = {
     'kins':"/work/u6693411/amodal_dataset/kins/KITTI_AMODAL_DATASET/mod_instances_val_2.json",
-    'cocoa':"/work/u6693411/amodal_dataset/cocoa/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014.json"
+    'cocoa':"/work/u6693411/amodal_dataset/cocoa/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014_occ.json"
 }
 img_root = {
     'kins':'/work/u6693411/aisformer/data/datasets/KINS/test_imgs',
-    'cocoa':'/work/u6693411/aisformer/data/datasets/COCOA/test_imgs'
+    'cocoa':'/home/u6693411/amodal_dataset/cocoa/val'
 }
 
 def build_evaluator(cfg, dataset_name, output_folder=None):
@@ -381,27 +381,20 @@ class AIS_eval:
             self.model = build_efficient_sam_vits()
 
     def load_ckpt(self, ckpt_name):
-        if not ckpt_name == '':
-            self.ckpt_name = ckpt_name
-            print(f'\nLoading checkpoint: {self.ckpt_name}')
-            model_type, model_block, lora_rank = self.parse_model_info(ckpt_name)
-            self.model_type = model_type
-            self.model_block= model_block
-            self.lora_rank = lora_rank
+        self.ckpt_name = ckpt_name
+        print(f'\nLoading checkpoint: {self.ckpt_name}')
+        model_type, model_block, lora_rank = self.parse_model_info(ckpt_name)
+        self.model_type = model_type
+        self.model_block= model_block
+        self.lora_rank = lora_rank
 
-            self.load_model()
-            checkpoint = torch.load(os.path.join(self.args.test_ckpt_root, ckpt_name))
-            self.model.mask_decoder.load_state_dict(checkpoint['decoder'])
-            # load encoder ckpt if block number is not none
-            if self.model_block:
-                self.model.image_encoder.load_state_dict(checkpoint['encoder'])
-        else:
-            self.ckpt_name = "EffSAM_only"
-            print(f'\nLoading Efficient SAM only')
-            self.model_type = 'EffSAM only'
-            self.model_block= 0
-            self.lora_rank = 0
-            self.load_model()
+        self.load_model()
+        checkpoint = torch.load(os.path.join(self.args.test_ckpt_root, ckpt_name))
+        self.model.mask_decoder.load_state_dict(checkpoint['decoder'])
+        # load encoder ckpt if block number is not none
+        if self.model_block:
+            self.model.image_encoder.load_state_dict(checkpoint['encoder'])
+        
         self.model.to(self.device)
         self.model.eval()
 
@@ -494,11 +487,11 @@ class AIS_eval:
                     prompt,
                     prompt_label,
                 )
-                sorted_ids = torch.argsort(predicted_iou, dim=-1, descending=True)
-                predicted_iou = torch.take_along_dim(predicted_iou, sorted_ids, dim=2)
-                predicted_logits = torch.take_along_dim(
-                    predicted_logits, sorted_ids[..., None, None], dim=2
-                )
+                #sorted_ids = torch.argsort(predicted_iou, dim=-1, descending=True)
+                #predicted_iou = torch.take_along_dim(predicted_iou, sorted_ids, dim=2)
+                #predicted_logits = torch.take_along_dim(
+                #    predicted_logits, sorted_ids[..., None, None], dim=2
+                #)
                 predicted_logits = predicted_logits[:, :, slice(0, 1), :, :]
                 predicted_iou = predicted_iou[:, :, slice(0, 1)]
                 
@@ -550,19 +543,8 @@ class AIS_eval:
             self.save_json(result_dict)
 
     def Eval(self):
-        if self.args.test_ckpt_root == '':
-            all_ckpt = ['']
-        else:
-            all_ckpt = os.listdir(self.args.test_ckpt_root)
-        #exist_dir = os.listdir(self.args.result_save_root)
+        all_ckpt = os.listdir(self.args.test_ckpt_root)
         for ckpt in all_ckpt:
-            if not ckpt == '':
-                path = os.path.join(self.args.test_ckpt_root, ckpt)
-                if os.path.isdir(path):
-                    continue
-            '''if ckpt in exist_dir:
-                print(f'result {ckpt} already exists, continue.')
-                continue'''
             if self.args.point_and_box:
                 prompt_type = self.parse_prompt_info(ckpt)
                 if prompt_type != 'random':
@@ -589,12 +571,12 @@ def get_parser(parser):
     parser.add_argument('--point_and_box', type=everytype2bool, default=False, help='Use box + point as prompt')
     parser.add_argument('--num_fp', type=int, default=5, help='Number of positive point prompts')
     parser.add_argument('--num_bp', type=int, default=5, help='Number of negative point prompts')
-    parser.add_argument('--result_save_root', type=str, default='/work/u6693411/ais_result_cocoa_effSAMonly', help='Root for saving aisformer eval result')
-    parser.add_argument('--test_ckpt_root', type=str, default='', help='Root of the ckpt to be evaluated')
-    parser.add_argument('--mode_visualize', type=everytype2bool, default=False, help='Visualize only, do not save prediction result')
-    parser.add_argument('--vis_save_root', type=str, default='/work/u6693411/nv_ais_vis', help='Visualize only, do not save prediction result')
-    parser.add_argument('--vis_num', type=int, default=10, help='Number of images to visualize for each ckpt version')
-    parser.add_argument('--vis_score_filter', type=float, default=0.2, help='Not visualizing instances with score < this threshold')
+    parser.add_argument('--result_save_root', type=str, default='/work/u6693411/nv_ais_result_x3', help='Root for saving aisformer eval result')
+    parser.add_argument('--test_ckpt_root', type=str, default='/work/u6693411/ckpt_x3', help='Root of the ckpt to be evaluated')
+    parser.add_argument('--mode_visualize', type=everytype2bool, default=True, help='Visualize only, do not save prediction result')
+    parser.add_argument('--vis_save_root', type=str, default='/work/u6693411/x3_vis', help='Visualize only, do not save prediction result')
+    parser.add_argument('--vis_num', type=int, default=15, help='Number of images to visualize for each ckpt version')
+    parser.add_argument('--vis_score_filter', type=float, default=0.3, help='Not visualizing instances with score < this threshold')
 
     return parser
 

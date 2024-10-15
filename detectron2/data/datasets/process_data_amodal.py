@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 
 
-from aistron.data import datasets # register data
+#from aistron.data import datasets # register data
 
 """
 This file contains functions to parse COCO-format annotations into dicts in "Detectron2 format".

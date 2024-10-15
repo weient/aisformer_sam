@@ -119,7 +119,6 @@ class DatasetMapper:
                 anno.pop("segmentation", None)
             if not self.use_keypoint:
                 anno.pop("keypoints", None)
-
         # USER: Implement additional transformations if you have other types of data
         annos = [
             utils.transform_instance_annotations(

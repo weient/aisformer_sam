@@ -23,8 +23,15 @@ def generate_distinct_colors(n):
     return colors
 
 def create_label(name_tuple):
-    name_tuple = (str(part) for part in name_tuple)
-    return "_".join([part for part in name_tuple if "-" not in str(part)])
+    name_tuple = [str(part) for part in name_tuple]
+    if 'True' in name_tuple:
+        name_tuple.append('b+p')
+    #name_tuple = (str(part) for part in name_tuple)
+    name_tuple = [part for part in name_tuple if part != '-']
+    name_tuple = [part for part in name_tuple if (part != 'False' and part != 'True')]
+    label = "_".join(name_tuple)
+    #label = f'{label}_b+p' if 'b+p' in name_tuple else label
+    return label
 
 
 
@@ -54,7 +61,7 @@ def draw_graph(excel_path, fig_name_prefix='ais+effsam_mAP', versions_to_plot=[]
         plt.figure(figsize=(12, 6))
         
         # Group the data by unique combinations of Dataset, Encoder type, Encoder block, and LoRA rank
-        groups = dataset_df.groupby(['Encoder type', 'Encoder block', 'LoRA rank', 'Prompt type', 'Setting'])    
+        groups = dataset_df.groupby(['Encoder type', 'Encoder block', 'LoRA rank', 'Prompt type', 'Setting', 'b+p'])    
         
         # Generate distinct colors for this dataset's groups
         n_colors = len(groups)
@@ -69,7 +76,7 @@ def draw_graph(excel_path, fig_name_prefix='ais+effsam_mAP', versions_to_plot=[]
             plt.plot(group_sorted['Iteration'], group_sorted['mAP'], marker='o', linestyle='-', label=label, color=color)
     
         # Customize the plot
-        title = f'AIS+EffSAM mAP trained on {dataset} Dataset eval on KINS'
+        title = f'AIS+EffSAM mAP trained on {dataset} Dataset eval on COCOA'
         title = f'(class agnostic) {title}'if noclass else title
         plt.xlabel('Iteration')
         plt.ylabel('mAP')
@@ -90,8 +97,8 @@ def draw_graph(excel_path, fig_name_prefix='ais+effsam_mAP', versions_to_plot=[]
 
 if __name__ == "__main__":
     draw_graph(
-        excel_path='/home/u6693411/ais/AISFormer/final_result_iou_nocls.xlsx', 
-        fig_name_prefix='ais+effsam_mAP', 
-        versions_to_plot=[], 
+        excel_path='/home/u6693411/ais/AISFormer/final_result_iou_b+p.xlsx', 
+        fig_name_prefix='ais+effsam_mAP_b+p', 
+        versions_to_plot=["full 5 - random_random maxnum20", "full 5 - random_random -", "full 5 - random_random noboxaug"], 
         noclass=True
     )

@@ -85,12 +85,17 @@ def cal_result(root, file_name, dataset_name, class_agnostic):
         dir_list.append(info_dic)
     
     return dir_list
+def main_simple():
+    dataset_name = 'cocoa_unocc'
+    resFile = '/work/u6693411/aisformer/aisformer_cocoa/result.json'
+    class_agnostic = True
 
+    annFile = ANN[dataset_name]
+    coco_eval_mask(annFile, resFile, class_agnostic)
 def main():
-    dataset_name = 'kins'
-    # TODO
+    dataset_name = 'cocoa'
     class_agnostic = False
-    root = '/work/u6693411/ais_result_kins'
+    root = '/work/u6693411/nv_ais_result'
     file_name = ['result_iou.json', 'result.json']
 
     for name in file_name:
@@ -102,4 +107,4 @@ def main():
             ascending=[True, True, True, True, True, True, True])
 
 if __name__ == "__main__":
-    main()
+    main_simple()

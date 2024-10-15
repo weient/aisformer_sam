@@ -1,5 +1,5 @@
 _BASE_: '../Base-RCNN-FPN-D2SA.yaml'
-OUTPUT_DIR: ../data/train_outputs/aisformer/aisformer_R_50_FPN_1x_amodal_d2sa/
+OUTPUT_DIR: /work/u6693411/aisformer/d2sa/
 MODEL:
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   MASK_ON: True

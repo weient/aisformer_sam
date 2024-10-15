@@ -7,9 +7,9 @@ ID=159
 
 # TODO: specify experiment config
 ## kins
-config_path="configs/KINS-AmodalSeg/aisformer_R_50_FPN_1x_amodal_kins.yaml"
+#config_path="configs/KINS-AmodalSeg/aisformer_R_50_FPN_1x_amodal_kins.yaml"
 ## d2sa
-#config_path="configs/D2SA-AmodalSeg/aisformer_R_50_FPN_1x_amodal_d2sa.yaml"
+config_path="configs/D2SA-AmodalSeg/aisformer_R_50_FPN_1x_amodal_d2sa.yaml"
 
 ## cocoa
 #config_path="configs/COCOA_cls-AmodalSeg/aisformer_R_50_FPN_1x_amodal_cocoa_cls.yaml"

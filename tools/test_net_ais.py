@@ -63,6 +63,35 @@ import random
 from segment_anything import SamPredictor, sam_model_registry
 from tools.transforms import ResizeLongestSide
 from pycocotools.mask import encode
+import io
+from PIL import Image
+from amodal_efficient_sam.efficient_sam.build_efficient_sam import build_efficient_sam_vitt, build_efficient_sam_vits, build_efficient_sam_vitslora
+from tqdm import tqdm
+from pathlib import Path
+import re
+from amodal_efficient_sam.amodal_visualize import vis_box_test, vis_box_point_test
+
+ais_weight = {
+    'kins':'/work/u6693411/aisformer/kins/model_0119999_best.pth',
+    'cocoa':'/work/u6693411/aisformer/cocoa/model_0007999.pth'
+}
+ais_config = {
+    'kins':'/work/u6693411/aisformer/kins/config.yaml',
+    'cocoa':'/work/u6693411/aisformer/cocoa/config.yaml'
+}
+img_suffix = {
+    'kins':'.png',
+    'cocoa':'.jpg'
+}
+anno_dict = {
+    'kins':"/work/u6693411/amodal_dataset/kins/KITTI_AMODAL_DATASET/mod_instances_val_2.json",
+    'cocoa':"/work/u6693411/amodal_dataset/cocoa/COCO_AMODAL_DATASET/mod_COCOA_cls_val2014.json"
+}
+img_root = {
+    'kins':'/work/u6693411/aisformer/data/datasets/KINS/test_imgs',
+    'cocoa':'/work/u6693411/aisformer/data/datasets/COCOA/test_imgs'
+}
+
 def build_evaluator(cfg, dataset_name, output_folder=None):
     """
     Create evaluator(s) for a given dataset.
@@ -135,65 +164,60 @@ class Trainer(DefaultTrainer):
         res = OrderedDict({k + "_TTA": v for k, v in res.items()})
         return res
 
+def rle_to_mask(rle):
+    mask = mask_utils.decode(rle)
+    return mask
+
 def polys_to_mask(polygons, height, width):
 	rles = mask_utils.frPyObjects(polygons, height, width)
 	rle = mask_utils.merge(rles)
 	mask = mask_utils.decode(rle)
 	return mask
 
+
 class AmodalDataset(Dataset):
-    def __init__(self, dataset='kins'):
-        self.dataset = dataset
-        self.cur_imgid = None
-        self.cur_imgemb = None
+    def __init__(self, args):
+        self.dataset = args.dataset_name
         self.ais_aug = T.AugmentationList([T.ResizeShortestEdge(short_edge_length=(800, 800), max_size=3000, sample_style='choice')])
-        if dataset == 'kins':
-            self.data_root = imgemb_root
-            self.img_root = img_root
-            self.anno_path = anno_path
-            with open(self.anno_path) as f:
-                anns = json.load(f)
-                self.imgs_info = anns['images']
-                self.anns_info = anns['annotations']
+        self.img_root = img_root[self.dataset]
+        self.anno_path = anno_dict[self.dataset]
+        with open(self.anno_path) as f:
+            anns = json.load(f)
+            self.imgs_info = anns['images']
+            self.anns_info = anns['annotations']
+
     def __getitem__(self, index):
         img_id = self.imgs_info[index]['id']
         img_name = self.imgs_info[index]['file_name']
-        path = os.path.join(self.data_root, img_name.split('.png')[0]+'.pt')
         img_path = os.path.join(self.img_root, img_name)
+        image_np = np.array(Image.open(img_path))
+        img_tensor = transforms.ToTensor()(image_np)
+
         # for aisformer input data dictionary
         ais_data = {'file_name': img_path}
         img = utils.read_image(ais_data['file_name'], format='BGR')
-        ais_data['height'] = img.shape[0]
-        ais_data['width'] = img.shape[1]
+        ais_data['height'] = h = img.shape[0]
+        ais_data['width'] = w = img.shape[1]
         ais_data['image_id'] = img_id
         aug_input = T.AugInput(img)
-        transforms = self.ais_aug(aug_input)
+        transform = self.ais_aug(aug_input)
         img = aug_input.image
         ais_data["image"] = torch.as_tensor(np.ascontiguousarray(img.transpose(2, 0, 1)))
 
-
-        '''
-        # load pre-computed img embeddings
-        self.cur_imgemb = torch.load(path)
-        img_emb = self.cur_imgemb['feature'].squeeze(0).to(device)
-        input_size = self.cur_imgemb['input_size']
-        original_size = self.cur_imgemb['original_size']
-        h, w = original_size
-        '''
-        '''
         # amodal mask GT
         asegm = [anno["segmentation"] for anno in self.anns_info[str(img_id)]]
-        asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
-        asegm = torch.as_tensor(asegm, dtype=torch.float, device=device).unsqueeze(1)  
-        '''
-        # random point prompt
-        point_torch = []
-        # amodal bbox GT
-        box_torch = []
+        if self.dataset == 'kins':
+            asegm = np.stack([polys_to_mask(mask, h, w) for mask in asegm])
+        if self.dataset == 'cocoa':
+            asegm = np.stack([rle_to_mask(mask) for mask in asegm])
+        asegm = torch.as_tensor(asegm, dtype=torch.float).unsqueeze(1)  
+
+        # amodal box GT
         abbox = np.array([anno["bbox"] for anno in self.anns_info[str(img_id)]])
         box_torch = np.hstack((abbox[:, :2], abbox[:, :2] + abbox[:, 2:]))
-        box_torch = torch.as_tensor(box_torch, dtype=torch.float, device=device)
-        return box_torch, point_torch, ais_data, img_path
+        box_torch = torch.as_tensor(box_torch, dtype=torch.float)
+
+        return img_tensor, asegm, ais_data, box_torch
 
     def __len__(self):
         return len(self.imgs_info)
@@ -213,140 +237,280 @@ def setup(args):
     default_setup(cfg, args)
     return cfg
 
+def pick_rand_point(isegm, asegm, abbox, num_fp, num_bp):
+        # (ins_per_img, 1, H, W)
+        # xyxy format box
+        
+        N, C, H, W = asegm.shape
+        amask_tmp = torch.ones((N, C, H, W), dtype=asegm.dtype)
+        abbox[:, [0, 1]] = abbox[:, [0, 1]] - 10
+        abbox[:, [2, 3]] = abbox[:, [2, 3]] + 10
+        abbox[:, [0, 2]] = np.clip(abbox[:, [0, 2]], 0, W)
+        abbox[:, [1, 3]] = np.clip(abbox[:, [1, 3]], 0, H)
+        abbox = np.hstack((abbox[:, :2], abbox[:, 2:] - abbox[:, :2]))
+        for i in range(N):
+            x, y, w, h = abbox[i].astype(int)
+            amask_tmp[i, :, y:y+h, x:x+w] = asegm[i, :, y:y+h, x:x+w]
+        
+        cor_list = []
+        lab_list = []
 
-vit_dict = {
-    'vit_b':"/home/weientai18/SAM/SAM_ckpt/sam_vit_b_01ec64.pth", 
-    'vit_h':"/home/weientai18/SAM/SAM_ckpt/sam_vit_h_4b8939.pth"
-    }
-anno_dic = {
-    'train':'/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_train.json',
-    'test':'/work/weientai18/amodal_dataset/KITTI_AMODAL_DATASET/mod_instances_val_2.json'
-}
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-eval_type = 'test' # train or test
-vit_type = 'vit_h'
-dataset_name = 'kins'
-img_root = '/home/weientai18/ais/data/datasets/KINS/{}_imgs'.format(eval_type)
-imgemb_root = '/work/weientai18/amodal_dataset/training_imgemb_h'
-anno_path = anno_dic[eval_type]
-anchor_matcher = Matcher(
-        thresholds=[0.5, 0.6], labels=[0, -1, 1], allow_low_quality_matches=True
-    )
-result_list = []
-result_save_path = '/work/weientai18/result_aisformer_best_test.json'
-vis_save_root = '/work/weientai18/aissam_vis'
+        for i in range(N):
+            # Identifying foreground and background points
+            fore_p = (isegm[i, 0] == 1).nonzero(as_tuple=False)
+            back_p = (amask_tmp[i, 0] == 0).nonzero(as_tuple=False)
 
-def generate_random_colors(num_colors):
-    R = random.sample(range(50, 200), num_colors)
-    G = random.sample(range(50, 200), num_colors)
-    B = random.sample(range(50, 200), num_colors)
-    colors = list(zip(R, G, B))
+            # Handle the case where there are no foreground points
+            if fore_p.shape[0] == 0:
+                print("No pos point, use all neg point")
+                indices = torch.randperm(back_p.shape[0])[:num_fp+num_bp]
+                cor = back_p[indices]
+                lab = torch.tensor([0]).repeat(num_fp + num_bp)
+            elif back_p.shape[0] == 0:
+                print("No neg point, use all pos point")
+                indices = torch.randperm(fore_p.shape[0])[:num_fp+num_bp]
+                cor = fore_p[indices]
+                lab = torch.tensor([1]).repeat(num_fp + num_bp)
+            else:
+                # Handle when there are fewer foreground points than requested
+                if fore_p.shape[0] < num_fp:
+                    # Repeat the available foreground points to meet the required number
+                    fore_p = fore_p.repeat((num_fp // fore_p.shape[0]) + 1, 1)[:num_fp]
+                indices_f = torch.randperm(fore_p.shape[0])[:num_fp]
+                cor_f = fore_p[indices_f]
+                lab_f = torch.tensor([1]).repeat(num_fp)
+
+                # Handle when there are fewer background points than requested
+                if back_p.shape[0] < num_bp:
+                    # Repeat the available background points to meet the required number
+                    back_p = back_p.repeat((num_bp // back_p.shape[0]) + 1, 1)[:num_bp]
+                indices_b = torch.randperm(back_p.shape[0])[:num_bp]
+                cor_b = back_p[indices_b]
+                lab_b = torch.tensor([0]).repeat(num_bp)
+
+                cor = torch.cat((cor_f, cor_b))
+                lab = torch.cat((lab_f, lab_b))
+
+            # Adjusting coordinates order from (x, y) to (y, x) for consistency
+            cor = cor[:, [1, 0]]
+            cor_list.append(cor)
+            lab_list.append(lab)
+
+        cor_tensor = torch.stack(cor_list).to(torch.float)
+        lab_tensor = torch.stack(lab_list)
+        return cor_tensor, lab_tensor
+
+'''def pick_rand_point(isegm, num_fp):
     
-    return colors
+    N, C, H, W = isegm.shape
+    cor_list = []
+    lab_list = []
 
+    for i in range(N):
+        # Identifying foreground and background points
+        fore_p = (isegm[i, 0] == 1).nonzero(as_tuple=False)
+        #back_p = (amask_tmp[i, 0] == 0).nonzero(as_tuple=False)
 
-def vis(img_path, ais_box, matched_box, sam_mask, matched_mask):
-    print("visualizing...")
-    img_name = img_path.split('/')[-1]
-    save_path = os.path.join(vis_save_root, img_name)
-    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
-    matched_img = copy.deepcopy(img)
-    ais_img = copy.deepcopy(img)
-    matched_img = cv2.addWeighted(matched_img, 0.2, matched_img, 0, 0)
-    ais_img = cv2.addWeighted(ais_img, 0.2, ais_img, 0, 0)
-    color_match = (100, 0, 255)
-    color_ais = (0, 255, 100)
-    num_colors = len(sam_mask)
-    random_colors = generate_random_colors(num_colors)
-    for i, mask in enumerate(sam_mask):
-        b, g, r = random_colors[i]
-        mask = torch.squeeze(mask).cpu().numpy().astype(np.uint8)
-        matched = torch.squeeze(matched_mask[i]).cpu().numpy().astype(np.uint8)
-        mask = np.stack((b*mask, g*mask, r*mask), axis=2)
-        matched = np.stack((b*matched, g*matched, r*matched), axis=2)
-        ais_img = cv2.addWeighted(ais_img, 1, mask, 0.7, 0)
-        matched_img = cv2.addWeighted(matched_img, 1, matched, 0.7, 0)
-    for i, box in enumerate(ais_box):
-        matched = matched_box[i]
-        ais_img = cv2.rectangle(ais_img, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color_ais, 1)
-        matched_img = cv2.rectangle(matched_img, (int(matched[0]), int(matched[1])), (int(matched[2]), int(matched[3])), color_match, 1)
-    final_img = np.concatenate((matched_img, ais_img), axis=0)
-    cv2.imwrite(save_path, final_img)
+        if fore_p.shape[0] == 0:
+            print("  no foreground point")
+            cor = torch.tensor([])
+            lab = torch.tensor([])
+            lab_list.append(lab)
+        else:
+            indices_f = torch.randperm(fore_p.shape[0])[:num_fp]
+            cor_f = fore_p[indices_f]
+            cor = cor_f
+            lab_f = torch.tensor([1]).repeat(min(fore_p.shape[0], num_fp))
+            lab_list.append(lab_f)
+        # Adjusting coordinates order from (x, y) to (y, x) for consistency
+        cor = cor[:, [1, 0]]
+        cor_list.append(cor)
+    cor_tensor = torch.stack(cor_list)
+    lab_tensor = torch.stack(lab_list)
+    #vis_point(img_name, cor_tensor, isegm, num_fp, num_bp)
+    return cor_tensor, lab_tensor'''
 
-def save_instance_result(img_id, masks, classes, scores):
-    ais_to_ann = {0:1, 1:2, 2:4, 3:5, 4:6, 5:7, 6:8}
-    for i, mask in enumerate(masks):
-        #mask = torch.squeeze(mask, 0)
-        np_mask = mask.detach().cpu().numpy().astype(np.uint8)
-        rle_mask = encode(np.asfortranarray(np_mask))
-        rle_mask['counts'] = rle_mask['counts'].decode('ascii')
-        cat_id = classes[i].item()
-        score = scores[i].item()
-        result_list.append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
+class AIS_eval:
+    def __init__(self, args):
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.args = args
+        cfg = setup(args)
+        self.aisformer = Trainer.build_model(cfg)
+        DetectionCheckpointer(self.aisformer, save_dir=cfg.OUTPUT_DIR).resume_or_load(
+            cfg.MODEL.WEIGHTS, resume=args.resume
+        )
+        self.aisformer.to(self.device)
+        self.aisformer.eval()
+
+    @staticmethod
+    def parse_model_info(filename):
+        # Extract the base filename without the path
+        base_name = os.path.basename(filename)
+        
+        # Use regex to find either "full" or "lora" followed by digits, and optionally another underscore and digits for lora rank
+        match = re.search(r'(full|lora)(\d+)(?:_(\d+))?', base_name)
+        
+        if match:
+            model_type = match.group(1)  # This will be either "full" or "lora"
+            number = int(match.group(2))  # This will be the number following "full" or "lora"
+            lora_rank = int(match.group(3)) if match.group(3) and model_type == "lora" else None
+            return model_type, number, lora_rank
+        else:
+            return "decoder_only", 0, 0
+    @staticmethod
+    def parse_prompt_info(filename):
+        # Extract the base filename without the path
+        base_name = os.path.basename(filename)
+        
+        # Use regex to find either "full" or "lora" followed by digits, and optionally another underscore and digits for lora rank
+        match = re.search(r'(box|random)_(random|amodal)', base_name)
+    
+        if match:
+            
+            prompt_type = match.group(1)
+            return prompt_type
+        else:
+            print('no prompt type!!')
+            return 0
+    def load_model(self):
+        if self.model_type == "lora":
+            print(f'Building LoRA EfficientSAM, # rank: {self.lora_rank}, # encoder block: {self.model_block}')
+            self.model = build_efficient_sam_vitslora(lora_rank=self.lora_rank, block_num=self.model_block)
+        else:
+            print(f'Building Original EfficientSAM, # encoder block to load ckpt: {self.model_block}')
+            self.model = build_efficient_sam_vits()
+
+    def load_ckpt(self, ckpt_name):
+        self.ckpt_name = ckpt_name
+        print(f'\nLoading checkpoint: {self.ckpt_name}')
+        model_type, model_block, lora_rank = self.parse_model_info(ckpt_name)
+        self.model_type = model_type
+        self.model_block= model_block
+        self.lora_rank = lora_rank
+
+        self.load_model()
+        checkpoint = torch.load(os.path.join(self.args.test_ckpt_root, ckpt_name))
+        self.model.mask_decoder.load_state_dict(checkpoint['decoder'])
+        # load encoder ckpt if block number is not none
+        if self.model_block:
+            self.model.image_encoder.load_state_dict(checkpoint['encoder'])
+        
+        self.model.to(self.device)
+        self.model.eval()
+
+    def load_dataset(self):
+        self.dataset = AmodalDataset(self.args)
+        self.testing_loader = DataLoader(self.dataset, batch_size=1, shuffle=False)
+        print(f'Dataset Length for {self.args.dataset_name} test set: {len(self.testing_loader)}')
+
+    def save_instance_result(self, img_id, masks, classes, scores):
+        result_list = []
+        if self.args.dataset_name == 'cocoa':
+            ais_to_ann = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46, 41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
+        if self.args.dataset_name == 'kins':
+            ais_to_ann = {0: 1, 1: 2, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8}
+        
+        for i, mask in enumerate(masks):
+            
+            np_mask = mask.detach().cpu().numpy().astype(np.uint8)
+            rle_mask = encode(np.asfortranarray(np_mask))
+            rle_mask['counts'] = rle_mask['counts'].decode('ascii')
+            cat_id = classes[i].item()
+            score = scores[i].item()
+            result_list.append({'image_id': img_id, 'category_id': ais_to_ann[cat_id], 'segmentation': rle_mask, 'score': score})
+        return result_list
+    
+    def check_save_root(self, path):
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+
+    def save_json(self, result_list):
+        root = os.path.join(self.args.result_save_root, "aisformer_kins")
+        self.check_save_root(root)
+        path = os.path.join(root, 'result.json')
+        with open(path, 'w') as f:
+            json.dump(result_list, f)
+        
+        
+    def run_eval(self):
+        result_list = []
+        mask_threshold = 0
+        empty_img = 0
+        for i, data in enumerate(tqdm(self.testing_loader)):
+            img_tensor, asegm, ais_data, abbox = data
+            
+            with torch.no_grad():
+                ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(self.device)
+                ais_data['height'] = ais_data['height'].item()
+                ais_data['width'] = ais_data['width'].item()
+                ais_data['image_id'] = ais_data['image_id'].item()
+                img_id = ais_data['image_id']
+                output = self.aisformer([ais_data,])
+                output = output[0]['instances']
+                ais_box = output.pred_boxes.tensor
+                ais_cls = output.pred_classes
+                ais_score = output.scores
+                ais_mask = output.pred_amodal_masks
+                ais_mask_vis = output.pred_visible_masks
+                
+                result = self.save_instance_result(img_id, ais_mask, ais_cls, ais_score)
+                result_list.extend(result)
+                
+
+        
+        self.save_json(result_list)
+
+    def Eval(self):
+
+        self.load_dataset()
+        self.run_eval()
 
 def main(args):
-    torch.manual_seed(0)
-    # setting up AISFormer model
-    cfg = setup(args)
-    global aisformer 
-    aisformer = Trainer.build_model(cfg)
-    DetectionCheckpointer(aisformer, save_dir=cfg.OUTPUT_DIR).resume_or_load(
-        cfg.MODEL.WEIGHTS, resume=args.resume
-    )
-    aisformer.to(device)
-    aisformer.eval()
+    evaluator = AIS_eval(args)
+    evaluator.Eval()
 
-    # Create datasets for training & validation
-    dataset = AmodalDataset(dataset_name)
+def everytype2bool(v):
+    v = v.lower()
+    if v.isnumeric():
+        return bool(int(v))
+    if v in ['', 'no', 'none', 'false']:
+        return False
+    return True
 
-    # shuffle for training, not for validation
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-    samples = random.sample(range(len(dataset)), 10)
-    for i, data in enumerate(data_loader):
-        data = [None if x == [] else x for x in data]
-        bbox, point, ais_data, img_path = data
-        print(img_path[0].split('/')[-1])
-        with torch.no_grad():
-            ais_data['image'] = torch.squeeze(ais_data['image'], 0).to(device)
-            ais_data['height'] = ais_data['height'].item()
-            ais_data['width'] = ais_data['width'].item()
-            ais_data['image_id'] = ais_data['image_id'].item()
-            img_id = ais_data['image_id']
-            #asegm = torch.squeeze(asegm, 0)
-            bbox = torch.squeeze(bbox, 0)
-            output = aisformer([ais_data,])
-            output = output[0]['instances']
-            ais_box = output.pred_boxes.tensor
-            ais_box_copy = ais_box.clone()
-            ais_cls = output.pred_classes
-            ais_score = output.scores
-            ais_mask = output.pred_amodal_masks
-            pred_box = Boxes(ais_box)
-            gt_box = Boxes(bbox)
-            match_quality_matrix = pairwise_iou(gt_box, pred_box)
-            matched_idxs, anchor_labels = anchor_matcher(match_quality_matrix)
-            
-            save_instance_result(img_id, ais_mask, ais_cls, ais_score)
+def get_parser(parser):
     
-    with open(result_save_path, 'w') as f:
-        json.dump(result_list, f)
-    
+    parser.add_argument('--dataset_name', type=str, default='kins', help='Name of the dataset to test with AISFormer, can be kins / cocoa')
+    parser.add_argument('--point_and_box', type=everytype2bool, default=False, help='Use box + point as prompt')
+    parser.add_argument('--num_fp', type=int, default=5, help='Number of positive point prompts')
+    parser.add_argument('--num_bp', type=int, default=5, help='Number of negative point prompts')
+    parser.add_argument('--result_save_root', type=str, default='/work/u6693411/aisformer', help='Root for saving aisformer eval result')
+    parser.add_argument('--test_ckpt_root', type=str, default='/work/u6693411/nv_checkpoint', help='Root of the ckpt to be evaluated')
+    parser.add_argument('--mode_visualize', type=everytype2bool, default=False, help='Visualize only, do not save prediction result')
+    parser.add_argument('--vis_save_root', type=str, default='/work/u6693411/nv_ais_vis', help='Visualize only, do not save prediction result')
+    parser.add_argument('--vis_num', type=int, default=10, help='Number of images to visualize for each ckpt version')
+    parser.add_argument('--vis_score_filter', type=float, default=0.2, help='Not visualizing instances with score < this threshold')
+
+    return parser
+
 if __name__ == "__main__":
-    args = default_argument_parser().parse_args()
-    args.config_file='/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/config.yaml'
-    args.resume=False
-    args.eval_only=True
-    args.num_gpus=1
-    args.num_machines=1
-    args.machine_rank=0
-    args.dist_url='tcp://127.0.0.1:64153'
-    args.opts=['MODEL.WEIGHTS', '/work/weientai18/aisformer/aisformer_R_50_FPN_1x_amodal_kins_160000_resume/model_0119999_best.pth']
+    torch.manual_seed(0)
+    parser = default_argument_parser()
+    parser = get_parser(parser)
+    args = parser.parse_args()
+    args.config_file = ais_config[args.dataset_name]
+    args.resume = False
+    args.eval_only = True
+    args.num_gpus = 1
+    args.num_machines = 1
+    args.machine_rank = 0
+    args.dist_url = 'tcp://127.0.0.1:64153'
+    args.opts = ['MODEL.WEIGHTS', ais_weight[args.dataset_name]]
     print("Command Line Args:", args)
     launch(
         main,
         args.num_gpus,
-        num_machines=args.num_machines,
-        machine_rank=args.machine_rank,
-        dist_url=args.dist_url,
-        args=(args,),
+        num_machines = args.num_machines,
+        machine_rank = args.machine_rank,
+        dist_url = args.dist_url,
+        args = (args,),
     )
